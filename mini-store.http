@@ -1,0 +1,27 @@
+@base = http://127.0.0.1:5274
+# 仅在本机临时填入；不要把真实密码或 Token 提交到 Git。
+@token = REPLACE_IN_LOCAL_ENVIRONMENT
+
+### 数据库连通性
+GET {{base}}/health
+
+### 分页搜索，不需要登录
+GET {{base}}/api/store/products?q=ライト&page=1&pageSize=8&sort=price_asc
+
+### 品牌与树形分类
+GET {{base}}/api/store/categories
+
+### 个人购物车（需客户访问令牌）
+GET {{base}}/api/me/cart
+Authorization: Bearer {{token}}
+
+### 订单历史：服务端确认当前客户身份
+GET {{base}}/api/me/orders?page=1&pageSize=10
+Authorization: Bearer {{token}}
+
+### 后台订单：需管理员访问令牌
+GET {{base}}/api/admin/orders?status=processing&page=1&pageSize=20
+Authorization: Bearer {{token}}
+
+### OpenAPI 文档
+GET {{base}}/openapi/v1.json

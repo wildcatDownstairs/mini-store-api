@@ -1,0 +1,122 @@
+CREATE TABLE
+TRUNCATE TABLE
+INSERT 0 26
+INSERT 0 1
+DO
+DO
+                      check_name                       | violations
+-------------------------------------------------------+------------
+ coupon_order_total                                    |          0
+ coupon_rules                                          |          0
+ coupon_used_count                                     |          0
+ duplicate_email                                       |          0
+ duplicate_order_number                                |          0
+ duplicate_sku                                         |          0
+ fk:cart_items_cart_id_fkey                            |          0
+ fk:cart_items_variant_id_fkey                         |          0
+ fk:carts_customer_id_fkey                             |          0
+ fk:categories_parent_id_fkey                          |          0
+ fk:coupon_redemptions_coupon_id_fkey                  |          0
+ fk:coupon_redemptions_customer_id_fkey                |          0
+ fk:coupon_redemptions_order_id_fkey                   |          0
+ fk:customer_addresses_customer_id_fkey                |          0
+ fk:order_addresses_order_id_fkey                      |          0
+ fk:order_items_order_id_fkey                          |          0
+ fk:order_items_product_id_fkey                        |          0
+ fk:order_items_variant_id_product_id_fkey             |          0
+ fk:order_status_history_order_id_fkey                 |          0
+ fk:orders_customer_id_fkey                            |          0
+ fk:payments_order_id_fkey                             |          0
+ fk:product_categories_category_id_fkey                |          0
+ fk:product_categories_product_id_fkey                 |          0
+ fk:product_images_product_id_fkey                     |          0
+ fk:product_images_variant_id_product_id_fkey          |          0
+ fk:product_reviews_customer_id_fkey                   |          0
+ fk:product_reviews_order_item_id_fkey                 |          0
+ fk:product_reviews_product_id_fkey                    |          0
+ fk:product_variants_product_id_fkey                   |          0
+ fk:products_brand_id_fkey                             |          0
+ fk:refunds_payment_id_fkey                            |          0
+ fk:shipments_order_id_fkey                            |          0
+ fk:shipments_warehouse_id_fkey                        |          0
+ fk:stock_movements_order_id_fkey                      |          0
+ fk:stock_movements_warehouse_id_variant_id_fkey       |          0
+ fk:stocks_variant_id_fkey                             |          0
+ fk:stocks_warehouse_id_fkey                           |          0
+ history_before_order                                  |          0
+ history_chain                                         |          0
+ history_final_status                                  |          0
+ movement_variant_not_ordered                          |          0
+ negative_item_money                                   |          0
+ negative_order_money                                  |          0
+ negative_stock                                        |          0
+ negative:catalog.product_sales_summary.gross_sales    |          0
+ negative:catalog.product_variants.price               |          0
+ negative:catalog.products.base_price                  |          0
+ negative:marketing.coupon_redemptions.discount_amount |          0
+ negative:marketing.coupons.discount_value             |          0
+ negative:marketing.coupons.max_discount_amount        |          0
+ negative:marketing.coupons.min_order_amount           |          0
+ negative:payment.payments.amount                      |          0
+ negative:payment.refunds.amount                       |          0
+ negative:sales.cart_items.unit_price                  |          0
+ negative:sales.order_items.discount_amount            |          0
+ negative:sales.order_items.line_total                 |          0
+ negative:sales.order_items.tax_amount                 |          0
+ negative:sales.order_items.unit_price                 |          0
+ negative:sales.order_summary.discount                 |          0
+ negative:sales.order_summary.grand_total              |          0
+ negative:sales.order_summary.shipping                 |          0
+ negative:sales.order_summary.subtotal                 |          0
+ negative:sales.order_summary.tax                      |          0
+ negative:sales.orders.discount_total                  |          0
+ negative:sales.orders.grand_total                     |          0
+ negative:sales.orders.shipping_total                  |          0
+ negative:sales.orders.subtotal                        |          0
+ negative:sales.orders.tax_total                       |          0
+ order_before_customer                                 |          0
+ order_before_product                                  |          0
+ order_formula                                         |          0
+ order_item_totals                                     |          0
+ paid_order_capture                                    |          0
+ payment_order_amount                                  |          0
+ refund_overpayment                                    |          0
+ refund_timeline                                       |          0
+ return_quantities                                     |          0
+ review_purchase                                       |          0
+ sale_quantities                                       |          0
+ shipment_timeline                                     |          0
+ stock_ledger_balance                                  |          0
+ stock_running_balance                                 |          0
+(82 rows)
+
+DO
+CREATE TABLE
+TRUNCATE TABLE
+DO
+          table_name          | row_count
+------------------------------+-----------
+ account.customer_addresses   |     30000
+ account.customers            |     20000
+ catalog.brands               |       150
+ catalog.categories           |        90
+ catalog.product_categories   |      6000
+ catalog.product_images       |      5000
+ catalog.product_variants     |     12000
+ catalog.products             |      5000
+ inventory.stock_movements    |    940372
+ inventory.stocks             |     48000
+ inventory.warehouses         |         4
+ marketing.coupon_redemptions |     22808
+ marketing.coupons            |        12
+ payment.payments             |    103426
+ payment.refunds              |      5487
+ review.product_reviews       |     63641
+ sales.cart_items             |     29009
+ sales.carts                  |     11666
+ sales.order_addresses        |    200000
+ sales.order_items            |    315102
+ sales.order_status_history   |    580073
+ sales.orders                 |    100000
+ shipping.shipments           |     93675
+(23 rows)

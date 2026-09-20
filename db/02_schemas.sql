@@ -1,0 +1,8 @@
+CREATE SCHEMA account;
+CREATE SCHEMA catalog;
+CREATE SCHEMA inventory;
+CREATE SCHEMA sales;
+CREATE SCHEMA payment;
+CREATE SCHEMA shipping;
+CREATE SCHEMA marketing;
+CREATE SCHEMA review;
