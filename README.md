@@ -39,7 +39,7 @@ python3 scripts/run_api.py
 
 两套前端分别在自己的目录运行 `pnpm install --frozen-lockfile`、`pnpm dev`。默认 API 地址为 5274，可用各自 `.env.example` 配置 `VITE_API_BASE_URL`。前台创建的订单会出现在后台；页面数据在加载、提交后刷新，不提供实时推送。
 
-开发环境接口调试：[Swagger UI](http://127.0.0.1:5274/swagger)。点击 Authorize，粘贴登录响应中的 accessToken 即可调试受保护接口。
+开发环境接口调试：[Scalar](http://127.0.0.1:5274/scalar)。在 Authentication 中选择 Bearer，粘贴登录响应中的 accessToken 即可调试受保护接口。
 
 健康检查：[health](http://127.0.0.1:5274/health)；开发环境契约：[OpenAPI](http://127.0.0.1:5274/openapi/v1.json)，仓库内也有 [契约快照](docs/backend/openapi.json)。在 Rider 打开 [mini-store.http](mini-store.http) 可逐条运行请求。
 

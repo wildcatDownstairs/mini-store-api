@@ -14,6 +14,7 @@ using MiniStore.Features.Payments;
 using MiniStore.Features.Products;
 using MiniStore.Features.Reviews;
 using MiniStore.Features.Shipping;
+using Scalar.AspNetCore;
 
 // Program 只负责组装服务和路由，具体业务放在各个 Feature 文件夹。
 var builder = WebApplication.CreateBuilder(args);
@@ -158,13 +159,15 @@ app.MapGet(
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    // Swagger UI 展示同一份内置 OpenAPI 文档，避免维护两套不同的接口契约。
-    // 这里只开放开发环境；Authorize 按钮接受登录返回的 JWT，不需手工加 Bearer 前缀。
-    app.UseSwaggerUI(options =>
-    {
-        options.SwaggerEndpoint("/openapi/v1.json", "Mini Store v1");
-        options.DocumentTitle = "Mini Store 电商接口文档";
-    });
+    // Scalar 读取同一份内置 OpenAPI 文档，无需为 UI 再注册一套文档生成服务。
+    // 仅在开发环境开放；Authentication 中填入登录返回的 JWT，不需手工加 Bearer 前缀。
+    app.MapScalarApiReference(options =>
+        options
+            .WithTitle("Mini Store 电商接口文档")
+            .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+            .DisableDefaultFonts()
+            .DisableAgent()
+    );
 }
 
 // 这些 Map 方法只注册路由，不会在启动时执行下单或查询商品等业务。

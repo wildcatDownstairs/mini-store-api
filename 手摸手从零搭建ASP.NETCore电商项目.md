@@ -159,7 +159,7 @@ cd "$LEARNING_PROJECT"
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
-    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="10.2.3" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.17.6" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
@@ -169,7 +169,7 @@ cd "$LEARNING_PROJECT"
 </Project>
 ```
 
-`Web` SDK 自动提供 ASP.NET Core 框架；Npgsql provider 提供 UseNpgsql 和查询翻译，Design 支持 EF 命令工具，OpenApi 导出契约，SwaggerUI 提供可交互接口页面，JwtBearer 为后续登录鉴权准备。`Nullable` 帮助发现空值问题，`ImplicitUsings` 提供常用命名空间。
+`Web` SDK 自动提供 ASP.NET Core 框架；Npgsql provider 提供 UseNpgsql 和查询翻译，Design 支持 EF 命令工具，OpenApi 导出契约，Scalar 提供可交互接口页面，JwtBearer 为后续登录鉴权准备。`Nullable` 帮助发现空值问题，`ImplicitUsings` 提供常用命名空间。
 
 ```bash
 cp "$REFERENCE_PROJECT/global.json" .
@@ -348,6 +348,7 @@ using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
 using MiniStore.Data;
 using MiniStore.Features.Products;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<StoreDbContext>(options =>
@@ -366,8 +367,11 @@ app.MapGet("/health", async (StoreDbContext db, CancellationToken ct) =>
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
-    app.UseSwaggerUI(options =>
-        options.SwaggerEndpoint("/openapi/v1.json", "Mini Store 入门版"));
+    app.MapScalarApiReference(options => options
+        .WithTitle("Mini Store 入门版")
+        .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient)
+        .DisableDefaultFonts()
+        .DisableAgent());
 }
 app.MapProducts();
 app.Run();
@@ -393,7 +397,7 @@ curl -i http://127.0.0.1:5284/api/store/products/by-id/00000000-0000-0000-0000-0
 curl http://127.0.0.1:5284/openapi/v1.json
 ```
 
-应分别得到健康状态、商品分页 JSON、400 参数错误、404 商品不存在和 OpenAPI JSON。复制列表中一个真实 id 替换零 UUID，再查详情。OpenAPI 是机器可读契约。打开 `http://127.0.0.1:5284/swagger`，可以在 Swagger UI 展开商品接口，点击 Try it out → Execute；页面使用同一个 `/openapi/v1.json`。
+应分别得到健康状态、商品分页 JSON、400 参数错误、404 商品不存在和 OpenAPI JSON。复制列表中一个真实 id 替换零 UUID，再查详情。OpenAPI 是机器可读契约。打开 `http://127.0.0.1:5284/scalar`，可以在 Scalar 选择商品接口，点击 Test Request → Send；页面使用同一个 `/openapi/v1.json`。
 
 ## 8. 用一条 SQL 理解刚才的 LINQ
 
@@ -502,11 +506,11 @@ Authorization: Bearer <本次客户登录返回的 accessToken>
 
 这些行为有可运行的集成测试，不需要靠页面是否隐藏按钮判断安全性。
 
-### 在 Swagger UI 中带令牌调试
+### 在 Scalar 中带令牌调试
 
-打开 `http://127.0.0.1:5284/swagger`。先展开客户或后台登录接口，点击 **Try it out**，输入本机账号后 Execute；复制响应的 `accessToken`。点击页面 **Authorize**，只粘贴令牌本体，不手工加 `Bearer `。再执行对应权限的接口。切换客户与管理员时更新令牌；这里不会将令牌配置为跨刷新持久保存。
+打开 `http://127.0.0.1:5284/scalar`。先选择客户或后台登录接口，点击 **Test Request**，输入本机账号后 Send；复制响应的 `accessToken`。在 **Authentication** 中选择 Bearer，只粘贴令牌本体，不手工加 `Bearer `。再执行对应权限的接口。切换客户与管理员时更新令牌；这里不会将令牌配置为跨刷新持久保存。
 
-完整项目在 `Program.cs` 调用 `AddStoreOpenApi()` 注册文档服务，在 Development 分支调用 `MapOpenApi()` 和 `UseSwaggerUI()`。这个注册方法内部使用 ASP.NET Core 自带 `AddOpenApi`；只使用 Swashbuckle 的 UI 组件，无需再注册第二套 SwaggerGen。
+完整项目在 `Program.cs` 调用 `AddStoreOpenApi()` 注册文档服务，在 Development 分支调用 `MapOpenApi()` 和 `MapScalarApiReference()`。这个注册方法内部使用 ASP.NET Core 自带 `AddOpenApi`；Scalar 只负责展示和调试，不需要再注册一套文档生成服务。页面资源由本机提供，示例默认使用 C# HttpClient。配置参考 [Scalar 官方集成说明](https://scalar.com/products/api-references/integrations/aspnetcore/integration)。
 
 接口文档直接跟随源码：
 
@@ -516,7 +520,7 @@ Authorization: Bearer <本次客户登录返回的 accessToken>
 - 请求 record 的 XML `param` 注释生成字段说明，需开启 csproj 的 `GenerateDocumentationFile`。
 - JWT 安全声明由真实权限元数据生成；`Idempotency-Key` 因为由 HttpContext 手动读取，在下单端点显式补入文档。
 
-元数据用法参见 [ASP.NET Core 官方文档](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/openapi/include-metadata?view=aspnetcore-10.0)。入门阶段使用少量接口；第 9 节导入完整源码后，Swagger 会展示完整分组和上述说明。
+元数据用法参见 [ASP.NET Core 官方文档](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/openapi/include-metadata?view=aspnetcore-10.0)。入门阶段使用少量接口；第 9 节导入完整源码后，Scalar 会展示完整分组和上述说明。
 
 ## 12. 完成一条电商业务链
 
@@ -594,7 +598,7 @@ python3 -m venv .venv
 | 表不存在 | 是否连到 ecommerce_lab，是否完成基础初始化与受保护的 API 增量升级 |
 | `Auth:SigningKey` 缺失 | 使用 run_api.py，或正确配置开发密钥；不要放固定源码默认密钥 |
 | 5284 端口占用 | 停止自己上一次服务，或换端口并同步请求 URL |
-| `/swagger` 返回 404 | 是否以 Development 启动，Program 是否同时 MapOpenApi 和 UseSwaggerUI；检查请求端口 |
+| `/scalar` 返回 404 | 是否以 Development 启动，Program 是否同时 MapOpenApi 和 MapScalarApiReference；检查请求端口 |
 | 查询返回空数组 | 检查 active、软删除、筛选与页码，不等于数据库一定没有数据 |
 | C# 编译通过但接口 500 | 查看服务器日志；重点检查 EF 无法翻译的 LINQ 和缺失数据库结构 |
 | 商品编辑返回 409 | 重新查询当前 Version，再处理修改；不要静默覆盖别人的更新 |

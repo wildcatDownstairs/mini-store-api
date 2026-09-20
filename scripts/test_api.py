@@ -184,11 +184,14 @@ try:
         assert {'200', '201', '409', '422'} <= place['responses'].keys()
         assert any(p['name'] == 'Idempotency-Key' and p['in'] == 'header' and p['required'] for p in place['parameters'])
         assert all(p.get('description') for p in schema['components']['schemas']['VariantRequest']['properties'].values())
-        # Swagger UI 使用相同文档；页面与本地脚本都必须能加载。
-        with urllib.request.urlopen(base + '/swagger/index.html') as res:
-            assert res.status == 200 and b'swagger-ui' in res.read()
-        with urllib.request.urlopen(base + '/swagger/index.js') as res:
-            assert res.status == 200 and b'/openapi/v1.json' in res.read()
+        # Scalar 使用相同文档，页面和脚本均由本地服务提供。
+        with urllib.request.urlopen(base + '/scalar/') as res:
+            html = res.read()
+            assert res.status == 200 and b'openapi/v1.json' in html
+            assert b'"targetKey":"csharp"' in html
+        for asset in ('scalar.js', 'scalar.aspnetcore.js'):
+            with urllib.request.urlopen(base + '/scalar/' + asset) as res:
+                assert res.status == 200 and res.read(), asset
 
         # 通用 SQL 审计包含订单合计、退款、库存流水、所有外键和时间线。
         with psycopg.connect(dbname=name,host=env['PGHOST']) as conn:

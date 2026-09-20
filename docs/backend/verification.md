@@ -2,7 +2,15 @@
 
 以下按阶段记录实际执行结果；日期采用日本时间。
 
-## OpenAPI 与 Swagger UI 验证（2026-09-21）
+## Scalar 文档页面验证（2026-09-21）
+
+- 用 Scalar.AspNetCore 2.17.6 替换 Swagger UI，开发环境入口改为 `/scalar`。仍使用内置 `/openapi/v1.json`；运行时文档与替换前快照逐值一致，61 个接口、中文说明与 JWT 定义不变。
+- 默认请求示例使用 C# HttpClient。脚本资源由本地服务提供，不加载默认 CDN 字体，关闭未使用的 Agent 功能。
+- 构建零警告、零错误，CSharpier 检查 74 个文件通过；72 项 HTTP 检查及隔离库 SQL 审计通过，Scalar 页面和两份本地脚本资源检查通过。
+- 浏览器确认中文导航、C# 示例和 Bearer 输入框可用；通过 Scalar 的 Test Request 实际调用 `/health`，返回 200 与 `status: healthy`。
+- README、模块导航、接口契约和根目录教程同步改用 Scalar；本地后端已重启。以下 Swagger 记录保留为替换前的历史验证。
+
+## OpenAPI 与 Swagger UI 验证（2026-09-21，已由 Scalar 替换）
 
 - 61 个业务/系统接口全部具备唯一 WithName、中文 WithSummary、WithDescription、分组及对应的错误响应声明；成功响应保留实际的 200/201/204 和 DTO。
 - 20 种请求 DTO 的 71 个字段增加 XML 参数说明；已从运行时文档读取确认生成结果。手动读取的 Idempotency-Key 请求头显式标注为必填。
