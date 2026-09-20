@@ -115,7 +115,7 @@ public sealed class CustomerService(StoreDbContext db)
     }
 
     /// <summary>后台分页检索客户，汇总订单数和已付款 JPY 订单金额；累计金额尚未扣除退款。</summary>
-    public async Task<PageResult<CustomerSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
+    public async Task<TableModel<CustomerSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
     {
         q.Validate();
         var source = db.Customers.AsNoTracking();

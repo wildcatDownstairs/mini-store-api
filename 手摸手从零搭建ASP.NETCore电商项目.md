@@ -257,7 +257,7 @@ namespace MiniStore.Features.Products;
 
 public sealed class ProductService(StoreDbContext db)
 {
-    public async Task<PageResult<ProductListItemDto>> ListAsync(
+    public async Task<TableModel<ProductListItemDto>> ListAsync(
         ListQuery query,
         CancellationToken ct
     )
@@ -325,16 +325,18 @@ public static class ProductEndpoints
             [AsParameters] ListQuery query,
             ProductService service,
             CancellationToken ct
-        ) => service.ListAsync(query, ct));
+        ) => ApiResponse.OkAsync(service.ListAsync(query, ct)));
 
         group.MapGet("/by-id/{id:guid}", (
             Guid id,
             ProductService service,
             CancellationToken ct
-        ) => service.GetAsync(id, ct));
+        ) => ApiResponse.OkAsync(service.GetAsync(id, ct)));
     }
 }
 ```
+
+`ApiResponse.OkAsync` 等待服务返回 DTO，再包装为 `success/code/msg/data`；分页记录在 `data.records` 中，详情对象在 `data` 中。完整说明见 [响应契约](docs/backend/api-contract.md)。
 
 `[AsParameters]` 绑定 `page/pageSize/q` 等 URL 参数；这个入门 Service 只使用分页和 q，其余筛选尚未实现。`ProductService` 是依赖注入的服务，`CancellationToken` 由框架提供，`id` 从路径读取。
 
@@ -354,16 +356,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<StoreDbContext>(options =>
     options.UseNpgsql(DatabaseSettings.Connection(builder.Configuration)));
 builder.Services.AddScoped<ProductService>();
+// 满足框架异常中间件的启动依赖，实际异常响应由 ApiExceptionHandler 输出。
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 app.UseExceptionHandler();
+app.UseStatusCodePages(context =>
+    context.HttpContext.Response.WriteAsJsonAsync(ApiResponse.Error(
+        context.HttpContext.Response.StatusCode, "请求失败，请检查路径和参数。")));
 app.MapGet("/health", async (StoreDbContext db, CancellationToken ct) =>
     await db.Database.CanConnectAsync(ct)
-        ? Results.Ok(new { status = "healthy" })
-        : Results.StatusCode(503));
+        ? Results.Ok(ApiResponse.Ok(new { status = "healthy" }))
+        : Results.Json(ApiResponse.Error(503, "数据库暂时不可用。"), statusCode: 503));
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -501,7 +507,7 @@ Authorization: Bearer <本次客户登录返回的 accessToken>
 | 客户令牌访问后台订单 | 403 |
 | viewer 读取后台订单 | 200 |
 | viewer 写商品 | 403 |
-| operator 合法写商品 | 201 / 204 等对应成功状态 |
+| operator 合法写商品 | 201 / 200 等对应成功状态 |
 | 客户查询别人订单 | 404，避免泄露记录是否存在 |
 
 这些行为有可运行的集成测试，不需要靠页面是否隐藏按钮判断安全性。

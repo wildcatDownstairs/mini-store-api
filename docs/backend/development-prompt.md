@@ -21,7 +21,7 @@
 - 下单在单一事务内重算并验证报价、锁定客户/购物车/优惠券/库存、创建快照/核销/预占/状态历史/幂等结果。库存使用现有 reserve_stock 函数；首版每个订单选择可完整履约的单仓，不将跨仓库存总量当成单仓库存。
 - 取消只支持未付款订单，释放预占；优惠核销保留审计与已用次数，明确不返还额度。
 - 只提供 Development 环境显式开启的模拟支付/退款结算，不实现虚假的网关 webhook。不采集银行卡信息。发货原子出库并记录流水；退款不自动将商品入库。
-- 查询上限、白名单排序、输入校验、ProblemDetails、参数化 SQL、CancellationToken、CORS 明确来源、登录限流。库存与退款并发写入需要真实 PostgreSQL 验证。
+- 查询上限、白名单排序、输入校验、统一 ApiResponse、参数化 SQL、CancellationToken、CORS 明确来源、登录限流。库存与退款并发写入需要真实 PostgreSQL 验证。
 - 不在源码、日志或 Git 写密码/密钥；连接优先使用 PG* 环境变量，也支持 ConnectionStrings__EcommerceLab。
 
 ## 交付

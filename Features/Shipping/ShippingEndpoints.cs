@@ -16,23 +16,23 @@ public static class ShippingEndpoints
             .MapGet(
                 "/shipments",
                 ([AsParameters] ListQuery q, ShippingService service, CancellationToken ct) =>
-                    service.ListAsync(q, ct)
+                    ApiResponse.OkAsync(service.ListAsync(q, ct))
             )
             .WithName("ListShipments")
             .WithSummary("分页查询物流记录")
             .WithDescription(
                 "需要 operator 或 viewer。支持 page、pageSize、q、status、warehouse；q 搜索订单号或运单号。warehouse 为仓库公开 UUID，按创建时间倒序。"
             )
-            .ProducesProblem(400)
-            .ProducesProblem(401)
-            .ProducesProblem(403)
-            .ProducesProblem(500);
+            .Produces<ApiResponse<object?>>(400)
+            .Produces<ApiResponse<object?>>(401)
+            .Produces<ApiResponse<object?>>(403)
+            .Produces<ApiResponse<object?>>(500);
 
         admin
             .MapPost(
                 "/orders/{id:guid}/ship",
                 (Guid id, ShipRequest r, ShippingService service, CancellationToken ct) =>
-                    service.ShipAsync(id, r, ct)
+                    ApiResponse.OkAsync(service.ShipAsync(id, r, ct))
             )
             .RequireAuthorization("AdminWrite")
             .WithName("ShipOrder")
@@ -40,12 +40,12 @@ public static class ShippingEndpoints
             .WithDescription(
                 "仅 operator。id 是订单公开 UUID；订单必须已付款且 processing，warehouseId 必须匹配预占仓。一次事务扣减实物和预占库存、写流水与物流并转为 shipped；不支持拆仓或重复发货。成功返回物流 UUID 及 200。"
             )
-            .ProducesProblem(400)
-            .ProducesProblem(401)
-            .ProducesProblem(403)
-            .ProducesProblem(404)
-            .ProducesProblem(409)
-            .ProducesProblem(500);
+            .Produces<ApiResponse<object?>>(400)
+            .Produces<ApiResponse<object?>>(401)
+            .Produces<ApiResponse<object?>>(403)
+            .Produces<ApiResponse<object?>>(404)
+            .Produces<ApiResponse<object?>>(409)
+            .Produces<ApiResponse<object?>>(500);
 
         admin
             .MapPost(
@@ -53,20 +53,20 @@ public static class ShippingEndpoints
                 async (Guid id, ShippingService service, CancellationToken ct) =>
                 {
                     await service.DeliverAsync(id, ct);
-                    return TypedResults.NoContent();
+                    return TypedResults.Ok(ApiResponse.Ok());
                 }
             )
             .RequireAuthorization("AdminWrite")
             .WithName("DeliverOrder")
             .WithSummary("确认订单签收")
             .WithDescription(
-                "仅 operator。订单必须为 shipped，物流为 shipped/in_transit；同步物流 delivered_at 和订单状态历史，成功返回 204。重复签收返回 409。"
+                "仅 operator。订单必须为 shipped，物流为 shipped/in_transit；同步物流 delivered_at 和订单状态历史，成功返回 200，data 为 null。重复签收返回 409。"
             )
-            .ProducesProblem(400)
-            .ProducesProblem(401)
-            .ProducesProblem(403)
-            .ProducesProblem(404)
-            .ProducesProblem(409)
-            .ProducesProblem(500);
+            .Produces<ApiResponse<object?>>(400)
+            .Produces<ApiResponse<object?>>(401)
+            .Produces<ApiResponse<object?>>(403)
+            .Produces<ApiResponse<object?>>(404)
+            .Produces<ApiResponse<object?>>(409)
+            .Produces<ApiResponse<object?>>(500);
     }
 }

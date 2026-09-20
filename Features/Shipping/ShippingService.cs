@@ -10,7 +10,7 @@ namespace MiniStore.Features.Shipping;
 public sealed class ShippingService(StoreDbContext db, OrderService orders)
 {
     /// <summary>后台分页查询物流，支持仓库、状态、订单号或运单号筛选。</summary>
-    public async Task<PageResult<ShipmentSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
+    public async Task<TableModel<ShipmentSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
     {
         q.Validate();
         var source = db.Shipments.AsNoTracking();

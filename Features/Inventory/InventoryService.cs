@@ -27,7 +27,7 @@ public sealed class InventoryService(StoreDbContext db)
     }
 
     /// <summary>按仓库和规格查询库存，可筛选可售量低于补货线的记录；稳定排序后数据库分页。</summary>
-    public async Task<PageResult<StockDto>> ListStocksAsync(ListQuery q, CancellationToken ct)
+    public async Task<TableModel<StockDto>> ListStocksAsync(ListQuery q, CancellationToken ct)
     {
         q.Validate();
         var source = db.Stocks.AsNoTracking();
@@ -63,7 +63,7 @@ public sealed class InventoryService(StoreDbContext db)
     }
 
     /// <summary>分页读取库存变动审计记录；订单号通过关联读取，非订单流水可能没有订单号。</summary>
-    public async Task<PageResult<StockMovementDto>> ListMovementsAsync(
+    public async Task<TableModel<StockMovementDto>> ListMovementsAsync(
         ListQuery q,
         CancellationToken ct
     )

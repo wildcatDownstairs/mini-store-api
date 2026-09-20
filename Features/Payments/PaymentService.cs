@@ -36,7 +36,7 @@ public sealed class PaymentService(
     }
 
     /// <summary>分页查询支付记录，同时汇总已完成、待审核和剩余可申请退款金额。</summary>
-    public async Task<PageResult<PaymentSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
+    public async Task<TableModel<PaymentSummaryDto>> ListAsync(ListQuery q, CancellationToken ct)
     {
         q.Validate();
         var source = db.Payments.AsNoTracking();
@@ -78,7 +78,7 @@ public sealed class PaymentService(
     }
 
     /// <summary>分页查询退款申请及所属订单；金额与原支付同币种。</summary>
-    public async Task<PageResult<RefundSummaryDto>> ListRefundsAsync(
+    public async Task<TableModel<RefundSummaryDto>> ListRefundsAsync(
         ListQuery q,
         CancellationToken ct
     )

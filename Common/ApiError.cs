@@ -25,7 +25,7 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
     )
     {
         var pg = error as PostgresException ?? error.InnerException as PostgresException;
-        var (status, code, detail) = error switch
+        var (status, _, detail) = error switch
         {
             ApiError a => (a.Status, a.Code, a.Message),
             DbUpdateConcurrencyException => (
@@ -49,17 +49,8 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
         };
         if (status == 500)
             logger.LogError(error, "未处理异常，追踪号 {TraceId}", context.TraceIdentifier);
-        await Results
-            .Problem(
-                statusCode: status,
-                title: code,
-                detail: detail,
-                extensions: new Dictionary<string, object?>
-                {
-                    ["traceId"] = context.TraceIdentifier,
-                }
-            )
-            .ExecuteAsync(context);
+        context.Response.StatusCode = status;
+        await context.Response.WriteAsJsonAsync(ApiResponse.Error(status, detail), ct);
         return true;
     }
 }
