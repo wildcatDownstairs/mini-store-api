@@ -11,6 +11,7 @@ public static class ShippingEndpoints
         var admin = app.MapGroup("/api/admin")
             .RequireAuthorization("AdminRead")
             .WithTags("发货与配送");
+
         admin
             .MapGet(
                 "/shipments",
@@ -26,6 +27,7 @@ public static class ShippingEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/orders/{id:guid}/ship",
@@ -44,6 +46,7 @@ public static class ShippingEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/orders/{id:guid}/deliver",

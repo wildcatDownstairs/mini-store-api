@@ -11,9 +11,11 @@ public static class OrderEndpoints
         var me = app.MapGroup("/api/me/orders")
             .RequireAuthorization("Customer")
             .WithTags("客户订单");
+
         var admin = app.MapGroup("/api/admin/orders")
             .RequireAuthorization("AdminRead")
             .WithTags("订单管理");
+
         me.MapGet(
                 "",
                 (
@@ -32,6 +34,7 @@ public static class OrderEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "",
@@ -47,6 +50,7 @@ public static class OrderEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         me.MapGet(
                 "/{id:guid}",
                 (Guid id, ClaimsPrincipal user, OrderService service, CancellationToken ct) =>
@@ -62,6 +66,7 @@ public static class OrderEndpoints
             .ProducesProblem(403)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/{id:guid}",
@@ -78,6 +83,7 @@ public static class OrderEndpoints
             .ProducesProblem(403)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         me.MapPost(
                 "/{id:guid}/cancel",
                 async (Guid id, ClaimsPrincipal user, OrderService service, CancellationToken ct) =>
@@ -97,6 +103,7 @@ public static class OrderEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/{id:guid}/cancel",
@@ -118,6 +125,7 @@ public static class OrderEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/{id:guid}/confirm",
@@ -139,6 +147,7 @@ public static class OrderEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/{id:guid}/process",

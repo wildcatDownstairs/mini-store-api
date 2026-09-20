@@ -11,6 +11,7 @@ public static class MarketingEndpoints
         var group = app.MapGroup("/api/admin/coupons")
             .WithTags("优惠券管理")
             .RequireAuthorization("AdminRead");
+
         group
             .MapGet(
                 "",
@@ -26,6 +27,7 @@ public static class MarketingEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         group
             .MapPost(
                 "",
@@ -43,6 +45,7 @@ public static class MarketingEndpoints
             .ProducesProblem(403)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         group
             .MapPut(
                 "/{id:guid}",
@@ -64,6 +67,7 @@ public static class MarketingEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         group
             .MapPatch(
                 "/{id:guid}/status",
