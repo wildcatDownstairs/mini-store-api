@@ -4,7 +4,7 @@
 
 ## 技术与组织
 
-.NET 10 LTS、C# 14、EF Core 10、Npgsql。单个可运行 Web 项目，按 Features/Auth、Catalog、Customers、Cart、Checkout、Orders、Inventory、Payments、Shipping、Marketing、Reviews、Dashboard 划分业务。每个业务放自己的端点、请求 DTO 和有必要的服务；DbContext 与数据库实体集中在 Data。不要通用 Repository、MediatR、CQRS、微服务或消息队列。
+.NET 10 LTS、C# 14、EF Core 10、Npgsql。单个可运行 Web 项目，按 Features/Auth、Products、Customers、Carts、Checkout、Orders、Inventory、Payments、Shipping、Marketing、Reviews、Dashboard 划分功能。实体放在所属功能目录，接口输入输出放在 `*Dtos.cs`，业务规则与数据查询放在 `*Service.cs`，`*Endpoints.cs` 仅负责路由、授权、参数和 HTTP 结果。共享 DbContext 与映射放在 Data。跨功能可以引用实体和服务，不反向依赖 Endpoints；Dashboard 等汇总功能不强行创建实体。不要通用 Repository、MediatR、CQRS、微服务或消息队列。
 
 代码的公开类型、业务步骤和容易误解的 C# 语法使用简体中文解释；重点讲 record、依赖注入、async/await、LINQ 延迟执行、AsNoTracking、DTO 投影、事务、行锁和乐观并发，而不是逐字翻译每条赋值。
 

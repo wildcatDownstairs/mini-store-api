@@ -5,44 +5,11 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
 using MiniStore.Data;
-using MiniStore.Data.Entities;
-using MiniStore.Features.Catalog;
+using MiniStore.Features.Marketing;
 using MiniStore.Features.Orders;
+using MiniStore.Features.Products;
 
 namespace MiniStore.Features.Checkout;
-
-public sealed record QuoteRequest(Guid AddressId, string ShippingMethod, string? CouponCode);
-
-public sealed record PlaceOrderRequest(
-    Guid AddressId,
-    string ShippingMethod,
-    string? CouponCode,
-    string QuoteToken
-);
-
-public sealed record QuoteResponse(
-    string QuoteToken,
-    DateTime ExpiresAt,
-    IReadOnlyList<QuotedLine> Lines,
-    Totals Totals
-);
-
-public sealed record OrderCreated(
-    Guid Id,
-    string OrderNumber,
-    string Status,
-    decimal GrandTotal,
-    bool Replayed
-);
-
-internal sealed record QuoteSignature(long CustomerId, string Digest);
-
-internal sealed record CheckoutData(
-    MiniStore.Data.Entities.Cart Cart,
-    CustomerAddress Address,
-    Coupon? Coupon,
-    QuoteCore Quote
-);
 
 /// <summary>一个作用域一个 DbContext。构造参数由 ASP.NET Core 的依赖注入容器提供，不能把此服务注册成单例。</summary>
 public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider protection)
@@ -51,9 +18,11 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         .CreateProtector("MiniStore.Checkout.v1")
         .ToTimeLimitedDataProtector();
 
+    /// <summary>生成内容摘要用于相等性比较；普通哈希本身不防篡改，报价令牌另由 Data Protection 保护。</summary>
     private static string Hash(string text) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
+    /// <summary>将当前计价结果、配送方式、优惠码和地址快照纳入摘要，用于检测报价后内容变化。</summary>
     private static string Digest(CheckoutData d, string shipping) =>
         Hash(
             JsonSerializer.Serialize(
@@ -74,6 +43,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
             )
         );
 
+    /// <summary>重新读取当前购物车和地址，计算报价并生成十分钟有效的受保护令牌；此时不锁库存。</summary>
     public async Task<QuoteResponse> QuoteAsync(
         long customer,
         QuoteRequest request,
@@ -90,6 +60,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         return new(token, DateTime.UtcNow.AddMinutes(10), data.Quote.Lines, data.Quote.Totals);
     }
 
+    /// <summary>在一个事务中验证幂等请求和报价，创建订单快照、预占库存、记录优惠核销并转换购物车。</summary>
     public async Task<OrderCreated> PlaceAsync(
         long customer,
         string key,
@@ -103,6 +74,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
             "请先获取有效报价。"
         );
         var requestHash = Hash(JsonSerializer.Serialize(request));
+        // await using 会在离开作用域时释放事务；只有走到 CommitAsync 才提交，异常路径不会留下半张订单。
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         var owner = await RowLocks.Customer(db, customer, ct);
         if (owner.Status != "active" || owner.DeletedAt != null)
@@ -148,6 +120,8 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
             .Distinct()
             .OrderBy(x => x)
             .ToArrayAsync(ct);
+        // FromSql 接收插值字符串并参数化，数组作为参数绑定；不要先拼接成普通 SQL 字符串。
+        // 固定 ID 顺序取锁，降低多个事务以相反顺序等待造成死锁的机会。
         await db
             .Products.FromSql(
                 $"SELECT *, xmin FROM catalog.products WHERE id = ANY({productIds}) ORDER BY id FOR UPDATE"
@@ -211,6 +185,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         order.OrderNumber = $"MS-{now:yyyyMMdd}-{Guid.NewGuid():N}"[..35];
         foreach (var line in data.Quote.Lines)
         {
+            // 复制名称与成交金额而不是只存外键，商品以后改名、调价也不能改写历史订单。
             var item = data.Cart.CartItems.Single(i => i.Variant.PublicId == line.VariantId);
             order.OrderItems.Add(
                 new OrderItem
@@ -231,6 +206,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         }
         foreach (var type in new[] { "shipping", "billing" })
         {
+            // 当前学习版把同一收货地址复制为收货、账单两份快照；暂不支持分别选择账单地址。
             var a = data.Address;
             order.OrderAddresses.Add(
                 new()
@@ -266,6 +242,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
             }
         );
         db.Orders.Add(order);
+        // 先 SaveChanges 取得数据库生成的内部订单 ID，供预占函数使用；外层事务尚未提交。
         await db.SaveChangesAsync(ct);
         foreach (var item in order.OrderItems.OrderBy(i => i.VariantId))
             await db.Database.ExecuteSqlAsync(
@@ -307,6 +284,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         return new(order.PublicId, order.OrderNumber, order.Status, order.GrandTotal, false);
     }
 
+    /// <summary>从数据库读取本人的收货地址、当前规格价格与优惠券规则，返回服务端计算的结算数据。</summary>
     private async Task<CheckoutData> ReadAsync(
         long customer,
         QuoteRequest request,
@@ -352,7 +330,7 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
                     i.Variant.Name,
                     i.Quantity,
                     i.Variant.Price,
-                    CatalogEndpoints.Food(i.Variant.Product) ? .08m : .10m
+                    ProductService.IsFood(i.Variant.Product) ? .08m : .10m
                 );
             })
             .ToList();

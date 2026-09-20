@@ -2,42 +2,10 @@ using MiniStore.Common;
 
 namespace MiniStore.Features.Checkout;
 
-/// <summary>纯计价函数不访问数据库，适合从 C# record、LINQ 和单元测试开始学习。</summary>
-public sealed record PriceLine(
-    Guid VariantId,
-    string Sku,
-    string ProductName,
-    string VariantName,
-    int Quantity,
-    decimal UnitPrice,
-    decimal TaxRate
-);
-
-public sealed record QuotedLine(
-    Guid VariantId,
-    string Sku,
-    string ProductName,
-    string VariantName,
-    int Quantity,
-    decimal UnitPrice,
-    decimal DiscountAmount,
-    decimal TaxAmount,
-    decimal LineTotal
-);
-
-public sealed record Totals(
-    decimal Subtotal,
-    decimal DiscountTotal,
-    decimal TaxTotal,
-    decimal ShippingTotal,
-    decimal GrandTotal,
-    string Currency
-);
-
-public sealed record QuoteCore(IReadOnlyList<QuotedLine> Lines, Totals Totals);
-
+/// <summary>纯计价函数不访问数据库，按行分摊优惠并计算税费。</summary>
 public static class Pricing
 {
+    /// <summary>纯函数计算整单与每行金额：按累计比例分摊折扣，按行计税，再计算运费；不读写数据库。</summary>
     public static QuoteCore Calculate(
         IReadOnlyList<PriceLine> lines,
         decimal discount,

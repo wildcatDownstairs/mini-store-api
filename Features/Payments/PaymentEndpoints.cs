@@ -1,280 +1,130 @@
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
-using MiniStore.Data;
-using MiniStore.Data.Entities;
-using MiniStore.Features.Orders;
 
 namespace MiniStore.Features.Payments;
 
-public sealed record SimulatedPaymentRequest(bool Success);
-
-public sealed record RefundRequest(Guid PaymentId, decimal Amount, string Reason);
-
-public sealed record RefundDecision(bool Approved);
-
+/// <summary>注册路由和权限，读取请求参数并调用服务；业务规则见 PaymentService。</summary>
 public static class PaymentEndpoints
 {
-    public static void RequireSimulation(IWebHostEnvironment env, IConfiguration config)
-    {
-        if (!env.IsDevelopment() || !config.GetValue<bool>("Features:SimulatedPayments"))
-            throw new ApiError(403, "simulation_disabled", "当前环境不允许模拟支付或退款结算。");
-    }
-
+    /// <summary>把本功能的路由注册到应用，并声明访问权限；业务逻辑交给注入的 Service。</summary>
     public static void MapPayments(this WebApplication app)
     {
         app.MapPost(
                 "/api/me/orders/{id:guid}/simulate-payment",
-                async (
+                (
                     Guid id,
                     SimulatedPaymentRequest r,
                     ClaimsPrincipal user,
-                    StoreDbContext db,
-                    IWebHostEnvironment env,
-                    IConfiguration config,
+                    PaymentService service,
                     CancellationToken ct
-                ) =>
-                {
-                    RequireSimulation(env, config);
-                    return await Simulate(db, id, user.ActorId(), r.Success, ct);
-                }
+                ) => service.SimulateCustomerAsync(id, r, user.ActorId(), ct)
             )
             .RequireAuthorization("Customer")
             .WithTags("模拟支付")
-            .WithSummary("仅开发环境：模拟付款结果，不产生真实扣款");
+            .WithName("SimulateMyPayment")
+            .WithSummary("模拟我的订单付款")
+            .WithDescription(
+                "需要客户身份，且仅 Development 开启模拟支付时可用。id 是本人订单 UUID；success=false 记录失败尝试，true 记录收款。已付款订单再次成功调用不重复扣款；不会调用真实网关。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
         app.MapPost(
                 "/api/admin/orders/{id:guid}/simulate-payment",
-                async (
+                (
                     Guid id,
                     SimulatedPaymentRequest r,
-                    StoreDbContext db,
-                    IWebHostEnvironment env,
-                    IConfiguration config,
+                    PaymentService service,
                     CancellationToken ct
-                ) =>
-                {
-                    RequireSimulation(env, config);
-                    return await Simulate(db, id, null, r.Success, ct);
-                }
+                ) => service.SimulateAdminAsync(id, r, ct)
             )
             .RequireAuthorization("AdminWrite")
-            .WithTags("模拟支付");
+            .WithTags("模拟支付")
+            .WithName("SimulateAdminPayment")
+            .WithSummary("后台模拟订单付款")
+            .WithDescription(
+                "仅 operator，且仅 Development 开启模拟支付时可用。记录订单金额的模拟付款结果，已成功付款可安全重放；环境不允许时返回 403，不产生真实资金流。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
         var admin = app.MapGroup("/api/admin")
             .RequireAuthorization("AdminRead")
             .WithTags("支付与退款");
-        admin.MapGet(
-            "/payments",
-            async (StoreDbContext db, [AsParameters] ListQuery q, CancellationToken ct) =>
-            {
-                q.Validate();
-                var source = db.Payments.AsNoTracking();
-                if (q.Status != null)
-                    source = source.Where(p => p.Status == q.Status);
-                if (q.Q is { Length: > 0 })
-                {
-                    var pattern = "%" + q.Q.Trim() + "%";
-                    source = source.Where(p =>
-                        EF.Functions.ILike(p.Order.OrderNumber, pattern)
-                        || p.ProviderTransactionId != null
-                            && EF.Functions.ILike(p.ProviderTransactionId, pattern)
-                    );
-                }
-                return await source
-                    .OrderByDescending(p => p.CreatedAt)
-                    .ThenByDescending(p => p.Id)
-                    .Select(p => new
-                    {
-                        id = p.PublicId,
-                        orderId = p.Order.PublicId,
-                        p.Order.OrderNumber,
-                        p.Provider,
-                        p.ProviderTransactionId,
-                        p.Method,
-                        p.Status,
-                        p.Amount,
-                        p.Currency,
-                        p.CapturedAt,
-                        p.CreatedAt,
-                        refunded = p.Refunds.Where(r => r.Status == "completed").Sum(r => r.Amount),
-                        pendingRefund = p
-                            .Refunds.Where(r => r.Status == "pending")
-                            .Sum(r => r.Amount),
-                        availableRefund = p.CapturedAt != null
-                            ? p.Amount
-                                - p.Refunds.Where(r =>
-                                        r.Status == "completed" || r.Status == "pending"
-                                    )
-                                    .Sum(r => r.Amount)
-                            : 0,
-                    })
-                    .PageAsync(q, ct);
-            }
-        );
-        admin.MapGet(
-            "/refunds",
-            async (StoreDbContext db, [AsParameters] ListQuery q, CancellationToken ct) =>
-            {
-                q.Validate();
-                var source = db.Refunds.AsNoTracking();
-                if (q.Status != null)
-                    source = source.Where(r => r.Status == q.Status);
-                if (q.Q is { Length: > 0 })
-                {
-                    var pattern = "%" + q.Q.Trim() + "%";
-                    source = source.Where(r =>
-                        EF.Functions.ILike(r.Payment.Order.OrderNumber, pattern)
-                    );
-                }
-                return await source
-                    .OrderByDescending(r => r.CreatedAt)
-                    .ThenByDescending(r => r.Id)
-                    .Select(r => new
-                    {
-                        id = r.PublicId,
-                        paymentId = r.Payment.PublicId,
-                        orderId = r.Payment.Order.PublicId,
-                        r.Payment.Order.OrderNumber,
-                        r.Amount,
-                        r.Payment.Currency,
-                        r.Reason,
-                        r.Status,
-                        r.CreatedAt,
-                        r.CompletedAt,
-                    })
-                    .PageAsync(q, ct);
-            }
-        );
+        admin
+            .MapGet(
+                "/payments",
+                ([AsParameters] ListQuery q, PaymentService service, CancellationToken ct) =>
+                    service.ListAsync(q, ct)
+            )
+            .WithName("ListPayments")
+            .WithSummary("分页查询支付及可退金额")
+            .WithDescription(
+                "需要 operator 或 viewer。支持 page、pageSize、q、status；q 搜索订单号或交易号。可退金额扣除已完成与待审核退款，未成功收款的可退额为零。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(500);
+        admin
+            .MapGet(
+                "/refunds",
+                ([AsParameters] ListQuery q, PaymentService service, CancellationToken ct) =>
+                    service.ListRefundsAsync(q, ct)
+            )
+            .WithName("ListRefunds")
+            .WithSummary("分页查询退款申请")
+            .WithDescription(
+                "需要 operator 或 viewer。支持 page、pageSize、q、status；q 搜索订单号。返回原支付 UUID、订单与申请金额，按申请时间倒序。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(500);
         admin
             .MapPost(
                 "/refunds",
-                async (RefundRequest r, StoreDbContext db, CancellationToken ct) =>
-                {
-                    Rules.Money(r.Amount, "退款金额", true);
-                    var reason = Rules.Text(r.Reason, 500, "退款原因");
-                    await using var tx = await db.Database.BeginTransactionAsync(ct);
-                    var payment =
-                        await db
-                            .Payments.FromSql(
-                                $"SELECT * FROM payment.payments WHERE public_id={r.PaymentId} FOR UPDATE"
-                            )
-                            .SingleOrDefaultAsync(ct)
-                        ?? throw ApiError.NotFound();
-                    var reserved = await db
-                        .Refunds.Where(x =>
-                            x.PaymentId == payment.Id
-                            && (x.Status == "pending" || x.Status == "completed")
-                        )
-                        .SumAsync(x => x.Amount, ct);
-                    if (payment.CapturedAt == null || r.Amount > payment.Amount - reserved)
-                        throw ApiError.Conflict(
-                            "退款超过可退金额（包括待审核申请），或支付尚未成功。"
-                        );
-                    var refund = new Refund
-                    {
-                        PaymentId = payment.Id,
-                        Amount = r.Amount,
-                        Reason = reason,
-                        Status = "pending",
-                        CreatedAt = DateTime.UtcNow,
-                    };
-                    db.Refunds.Add(refund);
-                    await db.SaveChangesAsync(ct);
-                    await tx.CommitAsync(ct);
-                    return Results.Ok(new { id = refund.PublicId, refund.Status });
-                }
+                (RefundRequest r, PaymentService service, CancellationToken ct) =>
+                    service.RequestRefundAsync(r, ct)
             )
-            .RequireAuthorization("AdminWrite");
+            .RequireAuthorization("AdminWrite")
+            .WithName("RequestRefund")
+            .WithSummary("申请订单支付退款")
+            .WithDescription(
+                "仅 operator。paymentId 为支付公开 UUID，amount 为正整数 JPY。锁定支付记录，将待审核与已完成退款合计后核对可退余额；成功创建 pending 申请并返回 200。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
         admin
             .MapPost(
                 "/refunds/{id:guid}/review",
-                async (
-                    Guid id,
-                    RefundDecision r,
-                    StoreDbContext db,
-                    IWebHostEnvironment env,
-                    IConfiguration config,
-                    CancellationToken ct
-                ) =>
+                async (Guid id, RefundDecision r, PaymentService service, CancellationToken ct) =>
                 {
-                    if (r.Approved)
-                        RequireSimulation(env, config);
-                    await using var tx = await db.Database.BeginTransactionAsync(ct);
-                    var paymentId =
-                        await db
-                            .Refunds.Where(x => x.PublicId == id)
-                            .Select(x => (long?)x.PaymentId)
-                            .SingleOrDefaultAsync(ct)
-                        ?? throw ApiError.NotFound();
-                    var payment = await db
-                        .Payments.FromSql(
-                            $"SELECT * FROM payment.payments WHERE id={paymentId} FOR UPDATE"
-                        )
-                        .SingleAsync(ct);
-                    var refund = await db.Refunds.SingleAsync(x => x.PublicId == id, ct);
-                    if (refund.Status != "pending")
-                        throw ApiError.Conflict("退款申请已经处理。");
-                    refund.Status = r.Approved ? "completed" : "failed";
-                    if (r.Approved)
-                    {
-                        refund.CompletedAt = DateTime.UtcNow;
-                        refund.ProviderRefundId = "SIM-REFUND-" + Guid.NewGuid().ToString("N");
-                    }
-                    await db.SaveChangesAsync(ct);
-                    if (r.Approved)
-                    {
-                        var refunded = await db
-                            .Refunds.Where(x => x.PaymentId == paymentId && x.Status == "completed")
-                            .SumAsync(x => x.Amount, ct);
-                        payment.Status =
-                            refunded == payment.Amount ? "refunded" : "partially_refunded";
-                        await db.SaveChangesAsync(ct);
-                    }
-                    // 退款不等于退货入库，这里不改变库存，也不修改已送达订单的历史金额。
-                    await tx.CommitAsync(ct);
-                    return Results.NoContent();
+                    await service.ReviewRefundAsync(id, r, ct);
+                    return TypedResults.NoContent();
                 }
             )
             .RequireAuthorization("AdminWrite")
-            .WithSummary("审核退款；批准只在开发模拟模式可用");
-    }
-
-    private static async Task<IResult> Simulate(
-        StoreDbContext db,
-        Guid id,
-        long? customer,
-        bool success,
-        CancellationToken ct
-    )
-    {
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        var order = await RowLocks.Order(db, id, customer, ct);
-        if (order.PaidAt != null && success)
-            return Results.Ok(new { order.Status, alreadyPaid = true });
-        if (order.Status is not ("pending" or "confirmed") || order.PaidAt != null)
-            throw ApiError.Conflict("该订单不能付款。");
-        if (order.Status == "pending")
-            OrderService.Transition(order, "confirmed", "模拟支付前确认订单");
-        var now = DateTime.UtcNow;
-        db.Payments.Add(
-            new Payment
-            {
-                OrderId = order.Id,
-                Provider = "card_gateway",
-                ProviderTransactionId = "SIM-" + Guid.NewGuid().ToString("N"),
-                Method = "credit_card",
-                Status = success ? "captured" : "failed",
-                Amount = order.GrandTotal,
-                Currency = order.Currency,
-                CreatedAt = now,
-                AuthorizedAt = success ? now : null,
-                CapturedAt = success ? now : null,
-                FailedAt = success ? null : now,
-            }
-        );
-        if (success)
-            OrderService.Transition(order, "paid", "开发环境模拟支付成功");
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return Results.Ok(new { order.Status, success });
+            .WithName("ReviewRefund")
+            .WithSummary("审核退款申请")
+            .WithDescription(
+                "仅 operator。id 是退款公开 UUID；只处理 pending，重复审核返回 409。approved=true 仅开发模拟模式可用并完成退款；拒绝标记 failed。退款不会自动退货入库或改写订单成交金额。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
     }
 }

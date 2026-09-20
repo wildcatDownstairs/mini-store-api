@@ -1,348 +1,188 @@
 using System.Security.Claims;
-using System.Text.RegularExpressions;
-using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
-using MiniStore.Data;
-using MiniStore.Data.Entities;
 
 namespace MiniStore.Features.Customers;
 
-public sealed record AddressRequest(
-    string AddressType,
-    string RecipientName,
-    string PostalCode,
-    string CountryCode,
-    string Prefecture,
-    string City,
-    string AddressLine1,
-    string? AddressLine2,
-    string Phone,
-    bool IsDefault
-);
-
-public sealed record AddressDto(
-    Guid Id,
-    string AddressType,
-    string RecipientName,
-    string PostalCode,
-    string CountryCode,
-    string Prefecture,
-    string City,
-    string AddressLine1,
-    string? AddressLine2,
-    string? Phone,
-    bool IsDefault
-);
-
-public sealed record ProfileRequest(
-    string FirstName,
-    string LastName,
-    string? Phone,
-    DateOnly? BirthDate
-);
-
-public sealed record CustomerStatusRequest(string Status);
-
+/// <summary>注册路由和权限，读取请求参数并调用服务；业务规则见 CustomerService。</summary>
 public static class CustomerEndpoints
 {
-    public static AddressDto ToDto(CustomerAddress a) =>
-        new(
-            a.PublicId,
-            a.AddressType,
-            a.RecipientName,
-            a.PostalCode,
-            a.CountryCode,
-            a.Prefecture,
-            a.City,
-            a.AddressLine1,
-            a.AddressLine2,
-            a.Phone,
-            a.IsDefault
-        );
-
+    /// <summary>把本功能的路由注册到应用，并声明访问权限；业务逻辑交给注入的 Service。</summary>
     public static void MapCustomers(this WebApplication app)
     {
         var me = app.MapGroup("/api/me").RequireAuthorization("Customer").WithTags("客户与地址");
         me.MapGet(
-            "",
-            async (ClaimsPrincipal user, StoreDbContext db, CancellationToken ct) =>
-                await db
-                    .Customers.AsNoTracking()
-                    .Where(c => c.Id == user.ActorId())
-                    .Select(c => new
-                    {
-                        id = c.PublicId,
-                        c.Email,
-                        c.FirstName,
-                        c.LastName,
-                        c.Phone,
-                        c.BirthDate,
-                        c.Status,
-                        c.CreatedAt,
-                    })
-                    .SingleAsync(ct)
-        );
+                "",
+                (ClaimsPrincipal user, CustomerService service, CancellationToken ct) =>
+                    service.GetProfileAsync(user.ActorId(), ct)
+            )
+            .WithName("GetMyProfile")
+            .WithSummary("读取我的客户资料")
+            .WithDescription(
+                "需要客户身份。内部客户标识由认证上下文提供，不接受查询其他客户；响应不包含密码哈希。"
+            )
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(500);
         me.MapPut(
-            "",
-            async (
-                ProfileRequest r,
-                ClaimsPrincipal user,
-                StoreDbContext db,
-                CancellationToken ct
-            ) =>
-            {
-                Rules.Require(
-                    r.Phone?.Length is not > 24
-                        && (
-                            !r.BirthDate.HasValue
-                            || r.BirthDate.Value <= DateOnly.FromDateTime(DateTime.UtcNow)
-                        ),
-                    "电话或出生日期无效。"
-                );
-                var c = await db.Customers.SingleAsync(c => c.Id == user.ActorId(), ct);
-                c.FirstName = Rules.Text(r.FirstName, 80, "名字");
-                c.LastName = Rules.Text(r.LastName, 80, "姓氏");
-                c.Phone = r.Phone;
-                c.BirthDate = r.BirthDate;
-                c.UpdatedAt = DateTime.UtcNow;
-                await db.SaveChangesAsync(ct);
-                return Results.NoContent();
-            }
-        );
-        me.MapGet(
-            "/addresses",
-            async (ClaimsPrincipal user, StoreDbContext db, CancellationToken ct) =>
-                (
-                    await db
-                        .CustomerAddresses.AsNoTracking()
-                        .Where(a => a.CustomerId == user.ActorId())
-                        .OrderByDescending(a => a.IsDefault)
-                        .ThenBy(a => a.Id)
-                        .ToListAsync(ct)
-                ).Select(ToDto)
-        );
-        me.MapPost(
-            "/addresses",
-            async (
-                AddressRequest r,
-                ClaimsPrincipal user,
-                StoreDbContext db,
-                CancellationToken ct
-            ) => Results.Ok(await SaveAddress(null, r, user.ActorId(), db, ct))
-        );
-        me.MapPut(
-            "/addresses/{id:guid}",
-            (
-                Guid id,
-                AddressRequest r,
-                ClaimsPrincipal user,
-                StoreDbContext db,
-                CancellationToken ct
-            ) => SaveAddress(id, r, user.ActorId(), db, ct)
-        );
-        me.MapDelete(
-            "/addresses/{id:guid}",
-            async (Guid id, ClaimsPrincipal user, StoreDbContext db, CancellationToken ct) =>
-            {
-                await using var tx = await db.Database.BeginTransactionAsync(ct);
-                await RowLocks.Customer(db, user.ActorId(), ct);
-                var address =
-                    await db.CustomerAddresses.SingleOrDefaultAsync(
-                        a => a.PublicId == id && a.CustomerId == user.ActorId(),
-                        ct
-                    ) ?? throw ApiError.NotFound();
-                db.Remove(address);
-                await db.SaveChangesAsync(ct);
-                if (address.IsDefault)
+                "",
+                async (
+                    ProfileRequest r,
+                    ClaimsPrincipal user,
+                    CustomerService service,
+                    CancellationToken ct
+                ) =>
                 {
-                    var next = await db
-                        .CustomerAddresses.Where(a =>
-                            a.CustomerId == address.CustomerId
-                            && a.AddressType == address.AddressType
-                        )
-                        .OrderBy(a => a.Id)
-                        .FirstOrDefaultAsync(ct);
-                    if (next != null)
-                    {
-                        next.IsDefault = true;
-                        next.UpdatedAt = DateTime.UtcNow;
-                        await db.SaveChangesAsync(ct);
-                    }
+                    await service.UpdateProfileAsync(r, user.ActorId(), ct);
+                    return TypedResults.NoContent();
                 }
-                await tx.CommitAsync(ct);
-                return Results.NoContent();
-            }
-        );
+            )
+            .WithName("UpdateMyProfile")
+            .WithSummary("更新我的客户资料")
+            .WithDescription(
+                "需要客户身份。更新姓名、电话及可空生日，不修改登录邮箱或账号状态；保存成功返回 204。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
+        me.MapGet(
+                "/addresses",
+                (ClaimsPrincipal user, CustomerService service, CancellationToken ct) =>
+                    service.ListAddressesAsync(user.ActorId(), ct)
+            )
+            .WithName("ListMyAddresses")
+            .WithSummary("列出我的地址")
+            .WithDescription(
+                "需要客户身份。只返回本人地址，默认地址优先；地址 UUID 可用于报价与下单。"
+            )
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(500);
+        me.MapPost(
+                "/addresses",
+                (
+                    AddressRequest r,
+                    ClaimsPrincipal user,
+                    CustomerService service,
+                    CancellationToken ct
+                ) => service.CreateAddressAsync(r, user.ActorId(), ct)
+            )
+            .WithName("CreateMyAddress")
+            .WithSummary("新增我的地址")
+            .WithDescription(
+                "需要客户身份。支持日本 shipping/billing 地址，每个客户最多 20 条；首次同类型地址自动设为默认，指定默认时原子切换。成功返回地址对象及 200。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
+        me.MapPut(
+                "/addresses/{id:guid}",
+                (
+                    Guid id,
+                    AddressRequest r,
+                    ClaimsPrincipal user,
+                    CustomerService service,
+                    CancellationToken ct
+                ) => service.UpdateAddressAsync(id, r, user.ActorId(), ct)
+            )
+            .WithName("UpdateMyAddress")
+            .WithSummary("更新我的地址")
+            .WithDescription(
+                "需要客户身份。id 是地址公开 UUID；仅可编辑本人地址，默认地址按类型保持唯一。地址变更不会改写历史订单的地址快照。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
+        me.MapDelete(
+                "/addresses/{id:guid}",
+                async (
+                    Guid id,
+                    ClaimsPrincipal user,
+                    CustomerService service,
+                    CancellationToken ct
+                ) =>
+                {
+                    await service.DeleteAddressAsync(id, user.ActorId(), ct);
+                    return TypedResults.NoContent();
+                }
+            )
+            .WithName("DeleteMyAddress")
+            .WithSummary("删除我的地址")
+            .WithDescription(
+                "需要客户身份。仅可删除本人地址；删除默认地址后选择同类型其他地址作为默认。历史订单保留原地址快照，成功返回 204。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
         var admin = app.MapGroup("/api/admin/customers")
             .RequireAuthorization("AdminRead")
             .WithTags("客户管理");
-        admin.MapGet(
-            "",
-            async (StoreDbContext db, [AsParameters] ListQuery q, CancellationToken ct) =>
-            {
-                q.Validate();
-                var source = db.Customers.AsNoTracking();
-                if (q.Status != null)
-                    source = source.Where(c => c.Status == q.Status);
-                if (!string.IsNullOrWhiteSpace(q.Q))
-                {
-                    var pattern = "%" + q.Q.Trim() + "%";
-                    source = source.Where(c =>
-                        EF.Functions.ILike(c.Email, pattern)
-                        || EF.Functions.ILike(c.LastName + c.FirstName, pattern)
-                    );
-                }
-                return await source
-                    .OrderByDescending(c => c.CreatedAt)
-                    .ThenByDescending(c => c.Id)
-                    .Select(c => new
-                    {
-                        id = c.PublicId,
-                        c.Email,
-                        name = c.LastName + " " + c.FirstName,
-                        c.Phone,
-                        c.Status,
-                        c.CreatedAt,
-                        orderCount = c.Orders.Count,
-                        totalSpent = c
-                            .Orders.Where(o => o.PaidAt != null && o.Currency == "JPY")
-                            .Sum(o => o.GrandTotal),
-                    })
-                    .PageAsync(q, ct);
-            }
-        );
-        admin.MapGet(
-            "/{id:guid}",
-            async (Guid id, StoreDbContext db, CancellationToken ct) =>
-            {
-                var c =
-                    await db
-                        .Customers.AsNoTracking()
-                        .SingleOrDefaultAsync(c => c.PublicId == id, ct)
-                    ?? throw ApiError.NotFound();
-                return new
-                {
-                    id = c.PublicId,
-                    c.Email,
-                    c.FirstName,
-                    c.LastName,
-                    c.Status,
-                    c.CreatedAt,
-                    addresses = (
-                        await db
-                            .CustomerAddresses.AsNoTracking()
-                            .Where(a => a.CustomerId == c.Id)
-                            .ToListAsync(ct)
-                    ).Select(ToDto),
-                    recentOrders = await db
-                        .Orders.AsNoTracking()
-                        .Where(o => o.CustomerId == c.Id)
-                        .OrderByDescending(o => o.CreatedAt)
-                        .ThenByDescending(o => o.Id)
-                        .Take(20)
-                        .Select(o => new
-                        {
-                            id = o.PublicId,
-                            o.OrderNumber,
-                            o.Status,
-                            o.GrandTotal,
-                            o.Currency,
-                            o.PlacedAt,
-                        })
-                        .ToListAsync(ct),
-                };
-            }
-        );
+        admin
+            .MapGet(
+                "",
+                ([AsParameters] ListQuery q, CustomerService service, CancellationToken ct) =>
+                    service.ListAsync(q, ct)
+            )
+            .WithName("ListCustomers")
+            .WithSummary("分页查询客户")
+            .WithDescription(
+                "需要 operator 或 viewer。支持 page、pageSize、q、status；q 搜索姓名或邮箱，按注册时间倒序。响应不包含密码哈希。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(500);
+        admin
+            .MapGet(
+                "/{id:guid}",
+                (Guid id, CustomerService service, CancellationToken ct) => service.GetAsync(id, ct)
+            )
+            .WithName("GetCustomer")
+            .WithSummary("读取客户详情与近期订单")
+            .WithDescription(
+                "需要 operator 或 viewer。id 是客户公开 UUID；返回资料、地址与最近订单。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(500);
         admin
             .MapPatch(
                 "/{id:guid}/status",
-                async (Guid id, CustomerStatusRequest r, StoreDbContext db, CancellationToken ct) =>
+                async (
+                    Guid id,
+                    CustomerStatusRequest r,
+                    CustomerService service,
+                    CancellationToken ct
+                ) =>
                 {
-                    Rules.Require(r.Status is "active" or "disabled", "只支持启用或停用客户。");
-                    var c =
-                        await db.Customers.SingleOrDefaultAsync(c => c.PublicId == id, ct)
-                        ?? throw ApiError.NotFound();
-                    c.Status = r.Status;
-                    c.UpdatedAt = DateTime.UtcNow;
-                    await db.SaveChangesAsync(ct);
-                    return Results.NoContent();
+                    await service.SetStatusAsync(id, r, ct);
+                    return TypedResults.NoContent();
                 }
             )
-            .RequireAuthorization("AdminWrite");
-    }
-
-    private static async Task<AddressDto> SaveAddress(
-        Guid? id,
-        AddressRequest r,
-        long customerId,
-        StoreDbContext db,
-        CancellationToken ct
-    )
-    {
-        Rules.Require(
-            r.AddressType is "shipping" or "billing" && r.CountryCode == "JP",
-            "当前仅支持日本的收货或账单地址。"
-        );
-        Rules.Require(
-            Regex.IsMatch(r.PostalCode ?? "", "^[0-9]{3}-?[0-9]{4}$")
-                && Regex.IsMatch(r.Phone ?? "", "^[+0-9 ()-]{8,24}$"),
-            "日本邮编或联系电话格式不正确。"
-        );
-        Rules.Require(r.AddressLine2?.Length is not > 160, "楼名和房间号过长。");
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
-        await RowLocks.Customer(db, customerId, ct);
-        var a = id.HasValue
-            ? await db.CustomerAddresses.SingleOrDefaultAsync(
-                a => a.PublicId == id && a.CustomerId == customerId,
-                ct
-            ) ?? throw ApiError.NotFound()
-            : new CustomerAddress { CustomerId = customerId, CreatedAt = DateTime.UtcNow };
-        if (id.HasValue)
-            Rules.Require(
-                a.AddressType == r.AddressType,
-                "现有地址类型不可更改，请新增另一类型地址。"
-            );
-        else
-            Rules.Require(
-                await db.CustomerAddresses.CountAsync(a => a.CustomerId == customerId, ct) < 20,
-                "最多保存 20 个地址。"
-            );
-        var makeDefault =
-            r.IsDefault
-            || !await db.CustomerAddresses.AnyAsync(
-                x => x.CustomerId == customerId && x.AddressType == r.AddressType && x.Id != a.Id,
-                ct
-            );
-        if (a.IsDefault && !makeDefault)
-            throw new ApiError(400, "default_address", "请先将另一个地址设为默认。");
-        if (makeDefault)
-            await db
-                .CustomerAddresses.Where(x =>
-                    x.CustomerId == customerId && x.AddressType == r.AddressType && x.IsDefault
-                )
-                .ExecuteUpdateAsync(
-                    s =>
-                        s.SetProperty(x => x.IsDefault, false)
-                            .SetProperty(x => x.UpdatedAt, DateTime.UtcNow),
-                    ct
-                );
-        a.AddressType = r.AddressType;
-        a.RecipientName = Rules.Text(r.RecipientName, 160, "收件人");
-        a.PostalCode = r.PostalCode!;
-        a.CountryCode = "JP";
-        a.Prefecture = Rules.Text(r.Prefecture, 80, "都道府县");
-        a.City = Rules.Text(r.City, 80, "城市");
-        a.AddressLine1 = Rules.Text(r.AddressLine1, 160, "详细地址");
-        a.AddressLine2 = r.AddressLine2;
-        a.Phone = r.Phone;
-        a.IsDefault = makeDefault;
-        a.UpdatedAt = DateTime.UtcNow;
-        if (!id.HasValue)
-            db.Add(a);
-        else
-            db.Entry(a).Property(x => x.IsDefault).IsModified = true;
-        await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        return ToDto(a);
+            .RequireAuthorization("AdminWrite")
+            .WithName("SetCustomerStatus")
+            .WithSummary("启用或停用客户")
+            .WithDescription(
+                "仅 operator。状态只接受 active 或 disabled；后续认证会读取数据库当前状态，停用客户的旧令牌不能继续访问受保护接口。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
     }
 }

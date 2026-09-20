@@ -1,12 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
 using MiniStore.Data;
-using MiniStore.Data.Entities;
+using MiniStore.Features.Inventory;
 
 namespace MiniStore.Features.Orders;
 
+/// <summary>读取订单快照并协调状态与库存释放；写操作由调用方法明确管理事务。</summary>
 public sealed class OrderService(StoreDbContext db)
 {
+    /// <summary>同步修改订单状态、时间和历史集合；不校验合法状态跳转，也不保存，调用方必须先校验并提交。</summary>
     public static void Transition(Order order, string to, string reason)
     {
         // 状态改变与历史记录一起保存，不能只改 orders.status。
@@ -30,6 +32,7 @@ public sealed class OrderService(StoreDbContext db)
             order.CompletedAt = now;
     }
 
+    /// <summary>锁定订单后取消未付款订单并释放预占；已使用优惠券次数和核销记录保留。</summary>
     public async Task CancelAsync(Guid id, long? customer, CancellationToken ct)
     {
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -45,6 +48,7 @@ public sealed class OrderService(StoreDbContext db)
     /// <summary>按订单流水追溯预占，不能释放其他订单的库存；sale=true 同时扣减实物库存。</summary>
     public async Task ReleaseAsync(Order order, bool sale, CancellationToken ct)
     {
+        // 调用方必须已开启事务并锁定订单；本方法不独立提交，让取消或发货操作可以整体回滚。
         var reservations = await db
             .StockMovements.Where(m =>
                 m.OrderId == order.Id
@@ -95,6 +99,7 @@ public sealed class OrderService(StoreDbContext db)
         }
     }
 
+    /// <summary>创建订单关联的库存流水对象；仅构造对象，不单独写入数据库。</summary>
     private static StockMovement Movement(long orderId, Stock stock, string type, int quantity) =>
         new()
         {
@@ -108,7 +113,8 @@ public sealed class OrderService(StoreDbContext db)
             CreatedAt = DateTime.UtcNow,
         };
 
-    public async Task<object> DetailAsync(Guid id, long? customer, CancellationToken ct)
+    /// <summary>读取订单成交快照及付款、退款和物流；customer 有值时限制归属，null 仅供已授权后台调用。</summary>
+    public async Task<OrderDetailDto> DetailAsync(Guid id, long? customer, CancellationToken ct)
     {
         var order =
             await db
@@ -137,10 +143,9 @@ public sealed class OrderService(StoreDbContext db)
             .Where(g => g.Sum(m => m.Quantity) > 0)
             .Select(g => (Guid?)g.Key)
             .FirstOrDefaultAsync(ct);
-        return new
-        {
-            fulfillmentWarehouseId = reservedWarehouse,
-            id = order.PublicId,
+        return new OrderDetailDto(
+            reservedWarehouse,
+            order.PublicId,
             order.OrderNumber,
             order.Status,
             order.Currency,
@@ -148,26 +153,23 @@ public sealed class OrderService(StoreDbContext db)
             order.PaidAt,
             order.CancelledAt,
             order.CompletedAt,
-            customer = new
-            {
-                id = order.Customer.PublicId,
-                name = order.Customer.LastName + " " + order.Customer.FirstName,
-                order.Customer.Email,
-            },
-            totals = new
-            {
+            new OrderCustomerDto(
+                order.Customer.PublicId,
+                order.Customer.LastName + " " + order.Customer.FirstName,
+                order.Customer.Email
+            ),
+            new OrderTotalsDto(
                 order.Subtotal,
                 order.DiscountTotal,
                 order.TaxTotal,
                 order.ShippingTotal,
                 order.GrandTotal,
-                order.Currency,
-            },
-            items = order
+                order.Currency
+            ),
+            order
                 .OrderItems.OrderBy(i => i.Id)
-                .Select(i => new
-                {
-                    id = i.PublicId,
+                .Select(i => new OrderItemDto(
+                    i.PublicId,
                     i.Sku,
                     i.ProductName,
                     i.VariantName,
@@ -176,10 +178,9 @@ public sealed class OrderService(StoreDbContext db)
                     i.DiscountAmount,
                     i.TaxAmount,
                     i.LineTotal,
-                    reviewStatus = i.ProductReview?.Status,
-                }),
-            addresses = order.OrderAddresses.Select(a => new
-            {
+                    i.ProductReview?.Status
+                )),
+            order.OrderAddresses.Select(a => new OrderAddressDto(
                 a.AddressType,
                 a.RecipientName,
                 a.PostalCode,
@@ -188,23 +189,16 @@ public sealed class OrderService(StoreDbContext db)
                 a.City,
                 a.AddressLine1,
                 a.AddressLine2,
-                a.Phone,
-            }),
-            history = order
+                a.Phone
+            )),
+            order
                 .OrderStatusHistories.OrderBy(h => h.CreatedAt)
                 .ThenBy(h => h.Id)
-                .Select(h => new
-                {
-                    h.FromStatus,
-                    h.ToStatus,
-                    h.Reason,
-                    h.CreatedAt,
-                }),
-            payments = order
+                .Select(h => new OrderHistoryDto(h.FromStatus, h.ToStatus, h.Reason, h.CreatedAt)),
+            order
                 .Payments.OrderBy(p => p.Id)
-                .Select(p => new
-                {
-                    id = p.PublicId,
+                .Select(p => new OrderPaymentDto(
+                    p.PublicId,
                     p.Provider,
                     p.Method,
                     p.Status,
@@ -212,27 +206,78 @@ public sealed class OrderService(StoreDbContext db)
                     p.Currency,
                     p.CreatedAt,
                     p.CapturedAt,
-                    refunds = p.Refunds.Select(r => new
-                    {
-                        id = r.PublicId,
+                    p.Refunds.Select(r => new OrderRefundDto(
+                        r.PublicId,
                         r.Amount,
                         r.Reason,
                         r.Status,
-                        r.CreatedAt,
-                    }),
-                }),
-            shipments = order
+                        r.CreatedAt
+                    ))
+                )),
+            order
                 .Shipments.OrderBy(s => s.Id)
-                .Select(s => new
-                {
-                    id = s.PublicId,
+                .Select(s => new OrderShipmentDto(
+                    s.PublicId,
                     s.Carrier,
                     s.TrackingNumber,
                     s.Status,
                     s.ShippedAt,
                     s.DeliveredAt,
-                    warehouse = s.Warehouse.Name,
-                }),
-        };
+                    s.Warehouse.Name
+                ))
+        );
+    }
+
+    /// <summary>锁定订单并要求当前状态等于 from，随后统一记录状态历史并提交。</summary>
+    public async Task ChangeAsync(Guid id, string from, string to, CancellationToken ct)
+    {
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var order = await RowLocks.Order(db, id, null, ct);
+        if (order.Status != from)
+            throw ApiError.Conflict("订单状态不允许此操作。");
+        OrderService.Transition(order, to, "运营人员处理订单");
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>分页查询订单；客户入口限制本人，后台入口可跨客户，二者复用同一投影。</summary>
+    public async Task<PageResult<OrderSummaryDto>> ListAsync(
+        ListQuery q,
+        long? customer,
+        CancellationToken ct
+    )
+    {
+        q.Validate();
+        var orders = db.Orders.AsNoTracking();
+        if (customer.HasValue)
+            orders = orders.Where(o => o.CustomerId == customer);
+        if (q.Status is { Length: > 0 })
+            orders = orders.Where(o => o.Status == q.Status);
+        if (q.Q is { Length: > 0 })
+        {
+            var pattern = "%" + q.Q.Trim() + "%";
+            orders = orders.Where(o =>
+                EF.Functions.ILike(o.OrderNumber, pattern)
+                || EF.Functions.ILike(o.Customer.Email, pattern)
+            );
+        }
+        return await orders
+            .OrderByDescending(o => o.CreatedAt)
+            .ThenByDescending(o => o.Id)
+            .Select(o => new OrderSummaryDto(
+                o.PublicId,
+                o.OrderNumber,
+                o.Status,
+                o.Currency,
+                o.GrandTotal,
+                o.PlacedAt,
+                o.PaidAt,
+                o.Customer.LastName + " " + o.Customer.FirstName,
+                o.OrderItems.Sum(i => i.Quantity),
+                o.OrderItems.OrderBy(i => i.Id).Select(i => i.ProductName).FirstOrDefault(),
+                o.Payments.OrderByDescending(p => p.Id).Select(p => p.Status).FirstOrDefault(),
+                o.Shipments.OrderByDescending(s => s.Id).Select(s => s.Status).FirstOrDefault()
+            ))
+            .PageAsync(q, ct);
     }
 }

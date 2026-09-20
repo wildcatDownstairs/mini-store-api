@@ -1,159 +1,92 @@
 using System.Security.Claims;
-using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
-using MiniStore.Data;
-using MiniStore.Data.Entities;
 
 namespace MiniStore.Features.Reviews;
 
-public sealed record ReviewRequest(short Rating, string? Title, string? Content);
-
-public sealed record ReviewDecision(string Status);
-
+/// <summary>注册路由和权限，读取请求参数并调用服务；业务规则见 ReviewService。</summary>
 public static class ReviewEndpoints
 {
+    /// <summary>把本功能的路由注册到应用，并声明访问权限；业务逻辑交给注入的 Service。</summary>
     public static void MapReviews(this WebApplication app)
     {
         app.MapGet(
                 "/api/store/products/{id:guid}/reviews",
-                async (
+                (
                     Guid id,
-                    StoreDbContext db,
                     [AsParameters] ListQuery q,
+                    ReviewService service,
                     CancellationToken ct
-                ) =>
-                {
-                    q.Validate();
-                    return await db
-                        .ProductReviews.AsNoTracking()
-                        .Where(r =>
-                            r.Product.PublicId == id
-                            && r.Product.Status == "active"
-                            && r.Product.DeletedAt == null
-                            && r.Status == "published"
-                        )
-                        .OrderByDescending(r => r.CreatedAt)
-                        .ThenByDescending(r => r.Id)
-                        .Select(r => new
-                        {
-                            id = r.PublicId,
-                            author = r.Customer.LastName + "顾客",
-                            r.Rating,
-                            r.Title,
-                            r.Content,
-                            r.IsVerifiedPurchase,
-                            r.CreatedAt,
-                        })
-                        .PageAsync(q, ct);
-                }
+                ) => service.ListProductAsync(id, q, ct)
             )
-            .WithTags("商品评价");
+            .WithTags("商品评价")
+            .WithName("ListProductReviews")
+            .WithSummary("分页读取商品公开评价")
+            .WithDescription(
+                "公开接口。id 是商品公开 UUID，仅使用 page、pageSize；只展示仍上架商品的 published 评价，作者仅显示姓氏加称呼。商品不可见或不存在时返回空页。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(500);
         app.MapPost(
                 "/api/me/orders/{id:guid}/items/{itemId:guid}/review",
-                async (
+                (
                     Guid id,
                     Guid itemId,
                     ReviewRequest r,
                     ClaimsPrincipal user,
-                    StoreDbContext db,
+                    ReviewService service,
                     CancellationToken ct
-                ) =>
-                {
-                    Rules.Require(
-                        r.Rating is >= 1 and <= 5
-                            && r.Title?.Length is not > 160
-                            && r.Content?.Length is not > 1000,
-                        "评分须为 1～5，标题最多 160 字，评价最多 1000 字。"
-                    );
-                    await using var tx = await db.Database.BeginTransactionAsync(ct);
-                    var order = await RowLocks.Order(db, id, user.ActorId(), ct);
-                    if (order.Status != "delivered")
-                        throw ApiError.Conflict("签收后才能评价。");
-                    var item =
-                        await db.OrderItems.SingleOrDefaultAsync(
-                            i => i.PublicId == itemId && i.OrderId == order.Id,
-                            ct
-                        ) ?? throw ApiError.NotFound();
-                    var review = new ProductReview
-                    {
-                        CustomerId = order.CustomerId,
-                        ProductId = item.ProductId,
-                        OrderItemId = item.Id,
-                        Rating = r.Rating,
-                        Title = r.Title?.Trim(),
-                        Content = r.Content?.Trim(),
-                        IsVerifiedPurchase = true,
-                        Status = "pending",
-                        CreatedAt = DateTime.UtcNow,
-                        UpdatedAt = DateTime.UtcNow,
-                    };
-                    db.ProductReviews.Add(review);
-                    await db.SaveChangesAsync(ct);
-                    await tx.CommitAsync(ct);
-                    return Results.Ok(new { id = review.PublicId, review.Status });
-                }
+                ) => service.CreateAsync(id, itemId, r, user.ActorId(), ct)
             )
             .RequireAuthorization("Customer")
-            .WithTags("商品评价");
+            .WithTags("商品评价")
+            .WithName("CreateMyReview")
+            .WithSummary("评价已签收的订单商品")
+            .WithDescription(
+                "需要客户身份。id 和 itemId 分别为本人订单与其订单项的公开 UUID。仅 delivered 可评价，rating 为 1～5；每个订单项只能评价一次，新评价为 pending，审核后才公开。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(404)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
         var admin = app.MapGroup("/api/admin/reviews")
             .RequireAuthorization("AdminRead")
             .WithTags("评价审核");
-        admin.MapGet(
-            "",
-            async (StoreDbContext db, [AsParameters] ListQuery q, CancellationToken ct) =>
-            {
-                q.Validate();
-                var source = db.ProductReviews.AsNoTracking();
-                if (q.Status != null)
-                    source = source.Where(r => r.Status == q.Status);
-                if (q.Q is { Length: > 0 })
-                {
-                    var pattern = "%" + q.Q.Trim() + "%";
-                    source = source.Where(r =>
-                        EF.Functions.ILike(r.Product.Name, pattern)
-                        || r.Content != null && EF.Functions.ILike(r.Content, pattern)
-                    );
-                }
-                return await source
-                    .OrderByDescending(r => r.CreatedAt)
-                    .ThenByDescending(r => r.Id)
-                    .Select(r => new
-                    {
-                        id = r.PublicId,
-                        productId = r.Product.PublicId,
-                        product = r.Product.Name,
-                        customer = r.Customer.LastName + " " + r.Customer.FirstName,
-                        orderId = r.OrderItem != null ? (Guid?)r.OrderItem.Order.PublicId : null,
-                        orderNumber = r.OrderItem != null ? r.OrderItem.Order.OrderNumber : null,
-                        r.Rating,
-                        r.Title,
-                        r.Content,
-                        r.IsVerifiedPurchase,
-                        r.Status,
-                        r.CreatedAt,
-                    })
-                    .PageAsync(q, ct);
-            }
-        );
+        admin
+            .MapGet(
+                "",
+                ([AsParameters] ListQuery q, ReviewService service, CancellationToken ct) =>
+                    service.ListAdminAsync(q, ct)
+            )
+            .WithName("ListAdminReviews")
+            .WithSummary("分页查询待审核及历史评价")
+            .WithDescription(
+                "需要 operator 或 viewer。支持 page、pageSize、q、status；q 搜索商品名或评价正文，按创建时间倒序。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(500);
         admin
             .MapPost(
                 "/{id:guid}/review",
-                async (Guid id, ReviewDecision r, StoreDbContext db, CancellationToken ct) =>
+                async (Guid id, ReviewDecision r, ReviewService service, CancellationToken ct) =>
                 {
-                    Rules.Require(r.Status is "published" or "rejected", "审核结果无效。");
-                    var changed = await db
-                        .ProductReviews.Where(x => x.PublicId == id && x.Status == "pending")
-                        .ExecuteUpdateAsync(
-                            s =>
-                                s.SetProperty(x => x.Status, r.Status)
-                                    .SetProperty(x => x.UpdatedAt, DateTime.UtcNow),
-                            ct
-                        );
-                    if (changed == 0)
-                        throw ApiError.Conflict("评价不存在或已审核。");
-                    return Results.NoContent();
+                    await service.ModerateAsync(id, r, ct);
+                    return TypedResults.NoContent();
                 }
             )
-            .RequireAuthorization("AdminWrite");
+            .RequireAuthorization("AdminWrite")
+            .WithName("ModerateReview")
+            .WithSummary("发布或拒绝待审核评价")
+            .WithDescription(
+                "仅 operator。id 是评价公开 UUID；status 只接受 published/rejected。条件更新只处理 pending，记录不存在或已处理返回 409，成功返回 204。"
+            )
+            .ProducesProblem(400)
+            .ProducesProblem(401)
+            .ProducesProblem(403)
+            .ProducesProblem(409)
+            .ProducesProblem(500);
     }
 }

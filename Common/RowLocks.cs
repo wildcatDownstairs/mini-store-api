@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MiniStore.Data;
-using MiniStore.Data.Entities;
+using MiniStore.Features.Customers;
+using MiniStore.Features.Orders;
 
 namespace MiniStore.Common;
 
