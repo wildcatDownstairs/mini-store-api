@@ -26,6 +26,7 @@ public static class CartEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         group
             .MapPut(
                 "/items/{id:guid}",
@@ -52,6 +53,7 @@ public static class CartEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         group
             .MapDelete(
                 "/items/{id:guid}",

@@ -12,6 +12,7 @@ public static class ProductEndpoints
         var admin = app.MapGroup("/api/admin")
             .WithTags("商品管理")
             .RequireAuthorization("AdminRead");
+
         store
             .MapGet(
                 "/products",
@@ -25,6 +26,7 @@ public static class ProductEndpoints
             )
             .ProducesProblem(400)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/products",
@@ -40,6 +42,7 @@ public static class ProductEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         store
             .MapGet(
                 "/products/{slug}",
@@ -53,6 +56,7 @@ public static class ProductEndpoints
             )
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         store
             .MapGet(
                 "/products/by-id/{id:guid}",
@@ -67,6 +71,7 @@ public static class ProductEndpoints
             .ProducesProblem(400)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/products/{id:guid}",
@@ -83,6 +88,7 @@ public static class ProductEndpoints
             .ProducesProblem(403)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         store
             .MapGet(
                 "/brands",
@@ -94,6 +100,7 @@ public static class ProductEndpoints
                 "公开接口。返回品牌公开 UUID、名称与 slug，按名称排序，供商品筛选使用。"
             )
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/brands",
@@ -107,6 +114,7 @@ public static class ProductEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         store
             .MapGet(
                 "/categories",
@@ -118,6 +126,7 @@ public static class ProductEndpoints
                 "公开接口。按 parent_id 组织活动分类为树，children 为空数组表示叶子；商品列表的 category 参数使用节点 slug。"
             )
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/categories",
@@ -131,6 +140,7 @@ public static class ProductEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/products",
@@ -151,6 +161,7 @@ public static class ProductEndpoints
             .ProducesProblem(403)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPut(
                 "/products/{id:guid}",
@@ -169,6 +180,7 @@ public static class ProductEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPatch(
                 "/products/{id:guid}/status",

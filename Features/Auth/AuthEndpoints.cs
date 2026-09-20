@@ -22,6 +22,7 @@ public static class AuthEndpoints
             .ProducesProblem(409)
             .ProducesProblem(429)
             .ProducesProblem(500);
+
         group
             .MapPost(
                 "/login",
@@ -37,6 +38,7 @@ public static class AuthEndpoints
             .ProducesProblem(401)
             .ProducesProblem(429)
             .ProducesProblem(500);
+
         app.MapPost(
                 "/api/admin/auth/login",
                 (LoginRequest request, AuthService service, CancellationToken ct) =>

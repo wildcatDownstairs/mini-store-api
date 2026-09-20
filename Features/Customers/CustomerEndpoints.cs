@@ -24,6 +24,7 @@ public static class CustomerEndpoints
             .ProducesProblem(403)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         me.MapPut(
                 "",
                 async (
@@ -48,6 +49,7 @@ public static class CustomerEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         me.MapGet(
                 "/addresses",
                 (ClaimsPrincipal user, CustomerService service, CancellationToken ct) =>
@@ -61,6 +63,7 @@ public static class CustomerEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         me.MapPost(
                 "/addresses",
                 (
@@ -80,6 +83,7 @@ public static class CustomerEndpoints
             .ProducesProblem(403)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         me.MapPut(
                 "/addresses/{id:guid}",
                 (
@@ -101,6 +105,7 @@ public static class CustomerEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         me.MapDelete(
                 "/addresses/{id:guid}",
                 async (
@@ -128,6 +133,7 @@ public static class CustomerEndpoints
         var admin = app.MapGroup("/api/admin/customers")
             .RequireAuthorization("AdminRead")
             .WithTags("客户管理");
+
         admin
             .MapGet(
                 "",
@@ -143,6 +149,7 @@ public static class CustomerEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/{id:guid}",
@@ -158,6 +165,7 @@ public static class CustomerEndpoints
             .ProducesProblem(403)
             .ProducesProblem(404)
             .ProducesProblem(500);
+
         admin
             .MapPatch(
                 "/{id:guid}/status",

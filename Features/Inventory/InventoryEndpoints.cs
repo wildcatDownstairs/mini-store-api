@@ -24,6 +24,7 @@ public static class InventoryEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         group
             .MapGet(
                 "/stocks",
@@ -39,6 +40,7 @@ public static class InventoryEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         group
             .MapGet(
                 "/stock-movements",
@@ -54,6 +56,7 @@ public static class InventoryEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         group
             .MapPost(
                 "/stocks/{warehouse:guid}/{variant:guid}/adjust",

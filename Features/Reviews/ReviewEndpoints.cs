@@ -26,6 +26,7 @@ public static class ReviewEndpoints
             )
             .ProducesProblem(400)
             .ProducesProblem(500);
+
         app.MapPost(
                 "/api/me/orders/{id:guid}/items/{itemId:guid}/review",
                 (
@@ -53,6 +54,7 @@ public static class ReviewEndpoints
         var admin = app.MapGroup("/api/admin/reviews")
             .RequireAuthorization("AdminRead")
             .WithTags("评价审核");
+
         admin
             .MapGet(
                 "",
@@ -68,6 +70,7 @@ public static class ReviewEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/{id:guid}/review",

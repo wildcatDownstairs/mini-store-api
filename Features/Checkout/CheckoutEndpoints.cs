@@ -31,6 +31,7 @@ public static class CheckoutEndpoints
             .ProducesProblem(409)
             .ProducesProblem(422)
             .ProducesProblem(500);
+
         app.MapPost(
                 "/api/me/orders",
                 async (

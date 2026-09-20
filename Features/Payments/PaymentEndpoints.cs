@@ -32,6 +32,7 @@ public static class PaymentEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         app.MapPost(
                 "/api/admin/orders/{id:guid}/simulate-payment",
                 (
@@ -54,9 +55,11 @@ public static class PaymentEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         var admin = app.MapGroup("/api/admin")
             .RequireAuthorization("AdminRead")
             .WithTags("支付与退款");
+
         admin
             .MapGet(
                 "/payments",
@@ -72,6 +75,7 @@ public static class PaymentEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapGet(
                 "/refunds",
@@ -87,6 +91,7 @@ public static class PaymentEndpoints
             .ProducesProblem(401)
             .ProducesProblem(403)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/refunds",
@@ -105,6 +110,7 @@ public static class PaymentEndpoints
             .ProducesProblem(404)
             .ProducesProblem(409)
             .ProducesProblem(500);
+
         admin
             .MapPost(
                 "/refunds/{id:guid}/review",
