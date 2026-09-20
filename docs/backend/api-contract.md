@@ -1,6 +1,8 @@
 # 页面与接口契约
 
-前端只消费 DTO；内部 bigint 关联键不作为 API 资源标识。接口路径和请求类型见 [OpenAPI 快照](openapi.json)，运行时 `/openapi/v1.json` 为最新契约。响应 JSON 使用 camelCase。
+前端只消费 DTO；内部 bigint 关联键不作为 API 资源标识。接口路径和请求类型见 [OpenAPI 快照](openapi.json)，运行时 `/openapi/v1.json` 为最新契约。响应 JSON 使用 camelCase。开发环境访问 `/swagger` 可按中文分组调试；Authorize 输入令牌本体。
+
+全部业务与系统接口声明 WithName、WithSummary、WithDescription 和错误响应。请求字段由 XML 注释生成，JWT 权限从真实路由元数据推导。文档说明不替代运行时校验；下单必须带非空 Idempotency-Key。
 
 分页返回 `items / page / pageSize / total`；失败返回 ProblemDetails，业务描述在 `detail`。401 需要重新登录，403 无权限，409 表示状态、报价、库存或版本已变化，不能盲目重试。
 
@@ -82,4 +84,4 @@
 
 ## 响应 DTO 阅读说明
 
-命名 record 会生成明确的 OpenAPI schema；部分查询使用匿名 LINQ 投影，其 OpenAPI 响应只表现为通用 object。学习自动生成客户端时，应先把这些响应提取为命名 record 并声明 Produces 类型。目前两套前端按实际响应字段对接，可同时参考 CatalogEndpoints、OrderService 的投影以及前端 domain 映射；不要把通用 object 当成空响应。
+接口响应使用各功能 `*Dtos.cs` 中的具名 record，Service 返回明确类型，OpenAPI 可展示商品、订单、购物车、库存等结构。商品创建使用 `TypedResults.Created`，下单端点明确声明首次创建 201 与幂等重放 200；无响应体的修改操作使用 204。可以从 `ProductService`、`OrderService` 的查询投影追踪字段来源。匿名类型仅用于内部查询中间结果和报价摘要，不作为业务 API 的响应契约。

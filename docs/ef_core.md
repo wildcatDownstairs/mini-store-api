@@ -1,5 +1,7 @@
 # ASP.NET Core 10 + EF Core 10 接入
 
+> 当前仓库已完成接入，真实入口是 `Data/StoreDbContext.cs`，实体已按功能放入 `Features/*`。下面保留最初的 database-first 练习步骤，适合在独立练习项目中执行；不要在本仓库重新安装依赖、重复注册 DbContext 或用 scaffold 覆盖现有代码。阅读现有服务请从 [后端学习路线](backend/learning-guide.md) 开始。
+
 现有项目目标是 `net10.0`，数据库已经建好。使用 Npgsql 的 EF Core 10 provider，先做 database-first reverse engineering。官方文档：[Provider](https://www.npgsql.org/efcore/)、[10.0 release notes](https://www.npgsql.org/efcore/release-notes/10.0.html)。
 
 ## 1. 添加同主版本依赖与本地工具

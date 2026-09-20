@@ -134,7 +134,62 @@ try:
         for resource in ['products','orders','customers','payments','refunds','shipments','coupons','reviews','inventory/stocks','inventory/stock-movements']:
             result=request('/api/admin/'+resource+'?pageSize=2',token=viewer);assert isinstance(result['items'],list)
         request('/api/admin/dashboard',token=operator)
-        request('/openapi/v1.json')
+        # 重构回归：真实 SQL 排序、具名响应 DTO 与框架 JSON 绑定必须保持可用。
+        food = {**product, 'name':'検証・食品', 'slug':'qa-food', 'categoryIds':[next(c['id'] for c in cats if c['name']=='Food')], 'variants':[{**product['variants'][0], 'sku':'QA-FOOD', 'price':1001}]}
+        food_id = post('/api/admin/products',food,operator,201)['id']
+        # 税前 1001 的食品含税 1081，低于税前 1000 的杯子含税 1100。
+        for sort, first in [('price_asc', food_id), ('price_desc', pid), ('rating', pid), ('newest', food_id)]:
+            listed = request('/api/store/products?sort='+sort)
+            assert listed['items'][0]['id'] == first
+
+        assert request('/api/store/products/'+p['slug'])['variants'][0]['id'] == variant
+        assert request('/api/store/products/by-id/'+pid)['id'] == pid
+        assert request('/api/me',token=token)['id'] == customers[0]['userId']
+        assert request('/api/admin/customers/'+customers[0]['userId'],token=operator)['addresses']
+        request('/api/me/cart/items/'+variant,'PUT',{'quantity':1},token,204)
+        cart = request('/api/me/cart',token=token)
+        assert cart['items'][0]['variantId'] == variant and cart['totals']['grandTotal'] == 1600
+        request('/api/me/cart/items/'+variant,'DELETE',token=token,expected=204)
+        schema = request('/openapi/v1.json')
+        for dto in ['ProductDetailDto','OrderDetailDto','CartDto','DashboardDto','PaymentSimulationDto']:
+            assert dto in schema['components']['schemas'], dto
+
+        # 文档也是对外契约：每个路由都有中文说明、稳定名称、实际授权和响应模型。
+        operation_ids = set()
+        for path, methods in schema['paths'].items():
+            for method, operation in methods.items():
+                if method not in ('get', 'post', 'put', 'patch', 'delete'):
+                    continue
+                assert operation.get('summary') and operation.get('description') and operation.get('tags'), (method, path)
+                operation_id = operation['operationId']
+                assert operation_id not in operation_ids, operation_id
+                operation_ids.add(operation_id)
+                protected = path.startswith('/api/me') or (path.startswith('/api/admin') and path != '/api/admin/auth/login')
+                assert bool(operation.get('security')) == protected, path
+                if protected:
+                    assert {'401', '403'} <= operation['responses'].keys(), path
+                for parameter in operation.get('parameters', []):
+                    assert parameter.get('description'), (path, parameter['name'])
+                for status, response in operation['responses'].items():
+                    assert response.get('description'), (path, status)
+                    if status.startswith('2') and status != '204':
+                        assert response.get('content', {}).get('application/json', {}).get('schema'), (path, status)
+                for media in operation.get('requestBody', {}).get('content', {}).values():
+                    ref = media.get('schema', {}).get('$ref')
+                    if ref:
+                        dto = schema['components']['schemas'][ref.rsplit('/', 1)[1]]
+                        assert all(p.get('description') for p in dto.get('properties', {}).values()), ref
+        assert schema['components']['securitySchemes']['Bearer']['scheme'] == 'bearer'
+        place = schema['paths']['/api/me/orders']['post']
+        assert {'200', '201', '409', '422'} <= place['responses'].keys()
+        assert any(p['name'] == 'Idempotency-Key' and p['in'] == 'header' and p['required'] for p in place['parameters'])
+        assert all(p.get('description') for p in schema['components']['schemas']['VariantRequest']['properties'].values())
+        # Swagger UI 使用相同文档；页面与本地脚本都必须能加载。
+        with urllib.request.urlopen(base + '/swagger/index.html') as res:
+            assert res.status == 200 and b'swagger-ui' in res.read()
+        with urllib.request.urlopen(base + '/swagger/index.js') as res:
+            assert res.status == 200 and b'/openapi/v1.json' in res.read()
+
         # 通用 SQL 审计包含订单合计、退款、库存流水、所有外键和时间线。
         with psycopg.connect(dbname=name,host=env['PGHOST']) as conn:
             conn.execute((ROOT/'db/08_verify.sql').read_text())

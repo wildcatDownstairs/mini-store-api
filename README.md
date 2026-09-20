@@ -5,6 +5,12 @@
 实际执行验证见 [validation_report](docs/validation_report.md)，实际导入结果与随机样本见 [seed_report](docs/seed_report.md)，设计理由见 [database_design](docs/database_design.md)，关系图见 [ER Diagram](docs/erd.md)。
 
 
+## 新手从这里开始
+
+第一次搭建后端，请按 [手摸手从零搭建 ASP.NET Core 电商项目](手摸手从零搭建ASP.NETCore电商项目.md) 操作：从空项目、真实商品查询到完整电商服务，每一阶段都有运行检查点。
+
+阅读现有代码，从 [Features 模块导航](Features/README.md) 进入。12 个功能目录都提供独立 README，说明文件职责、接口、业务规则、数据库关系、可执行 SQL 和练习。
+
 ## 先启动三个项目
 
 | 项目 | 仓库 | 本地地址 |
@@ -13,7 +19,7 @@
 | 管理后台 | [mini-store-admin](https://github.com/wildcatDownstairs/mini-store-admin) | http://127.0.0.1:5173 |
 | 电商网站 | [mini-store-web](https://github.com/wildcatDownstairs/mini-store-web) | http://127.0.0.1:5174 |
 
-安装 .NET 10 SDK（`global.json` 固定 10.0.401，允许同版本较新 patch）、Python 3 与 PostgreSQL。C# 14 是 .NET 10 配套语言版本；原需求中的“.NET 14”不是这个项目使用的运行时。
+安装 .NET 10 SDK（`global.json` 固定 10.0.401，允许同版本较新 patch）、Python 3 与 PostgreSQL。C# 14 是 .NET 10 配套语言版本。
 
 已有本任务的 `ecommerce_lab` 数据库时：
 
@@ -33,11 +39,44 @@ python3 scripts/run_api.py
 
 两套前端分别在自己的目录运行 `pnpm install --frozen-lockfile`、`pnpm dev`。默认 API 地址为 5274，可用各自 `.env.example` 配置 `VITE_API_BASE_URL`。前台创建的订单会出现在后台；页面数据在加载、提交后刷新，不提供实时推送。
 
+开发环境接口调试：[Swagger UI](http://127.0.0.1:5274/swagger)。点击 Authorize，粘贴登录响应中的 accessToken 即可调试受保护接口。
+
 健康检查：[health](http://127.0.0.1:5274/health)；开发环境契约：[OpenAPI](http://127.0.0.1:5274/openapi/v1.json)，仓库内也有 [契约快照](docs/backend/openapi.json)。在 Rider 打开 [mini-store.http](mini-store.http) 可逐条运行请求。
 
 ## 后端代码怎么读
 
-`Program.cs` 注册服务、鉴权和路由；`Features/` 按业务组织端点、请求模型与必要的服务；`Data/` 映射 PostgreSQL；`Common/` 只放分页、异常、连接和行锁等已有重复逻辑。没有通用 Repository、消息队列或微服务。
+`Features/` 按功能把实体、DTO、业务服务和端点放在一起。例如修改商品功能，可以从一个目录开始阅读：
+
+```text
+mini-store/
+├── Features/
+│   ├── Products/
+│   │   ├── Product.cs             # EF Core 实体，对应 catalog.products
+│   │   ├── ProductVariant.cs      # 同一功能中的规格实体
+│   │   ├── ProductDtos.cs         # API 请求与响应的数据形状
+│   │   ├── ProductService.cs      # 查询、校验和业务操作
+│   │   └── ProductEndpoints.cs    # 路由、权限、调用服务、HTTP 状态码
+│   ├── Auth/                     # 认证；AuthConfiguration 配置令牌和权限
+│   ├── Customers/                # 客户与地址
+│   ├── Carts/                    # 购物车
+│   ├── Checkout/                 # 报价、下单、幂等；Pricing 是纯计价函数
+│   ├── Orders/                   # 订单、成交快照、状态历史
+│   ├── Inventory/                # 仓库、库存、流水
+│   ├── Payments/                 # 支付与退款
+│   ├── Shipping/                 # 物流与履约
+│   ├── Marketing/                # 优惠券与核销
+│   ├── Reviews/                  # 评价与审核
+│   └── Dashboard/                # 汇总查询，不需要额外的实体表
+├── Data/
+│   ├── StoreDbContext.cs         # 统一的表、列、关系映射
+│   └── StoreDbContext.Concurrency.cs
+├── Common/                       # 分页、异常、连接配置与行锁
+├── Program.cs                    # 注册服务和路由
+├── appsettings.json
+└── mini-store.csproj
+```
+
+实体归所属功能，共享 `DbContext` 保留在 `Data`：一次下单涉及订单、库存、优惠券，必须可以在同一个事务里提交。端点不直接访问数据库，Service 不依赖 HTTP 请求上下文；当前用户的内部 ID 由端点读取后传入服务。没有额外的 Repository 或单实现接口层。
 
 先看商品查询，再看购物车，最后看下单事务：[从 C# 到一次下单](docs/backend/learning-guide.md)。完整任务约束记录在 [实施提示词](docs/backend/development-prompt.md)，联调结果见 [验证报告](docs/backend/verification.md)。
 
@@ -52,6 +91,8 @@ dotnet build
 ```
 
 `.editorconfig` 统一 4 空格缩进与大括号换行；CSharpier 是项目的统一排版工具。Rider 可识别 EditorConfig，批量整理后再运行 CSharpier，避免每个人手工维护不同格式。
+
+Rider 的“记录从未实例化”可能出现在请求 DTO 上：ASP.NET Core 会从 JSON 自动创建它们，不需要显式 `new`。这些类型带有中文说明和针对该项检查的 `SuppressMessage`；EF 查询自动创建的部分实体也标明了原因。没有关闭全项目的未使用代码检查。参考 [Rider 检查说明](https://www.jetbrains.com/help/rider/ClassNeverInstantiated.Global.html)。
 
 `test_api.py` 会创建随机名称的独立测试库，实际启动 API，验证权限、事务、并发、退款、快照等，再删除自己创建的测试库；需要当前 PostgreSQL 用户有 CREATEDB 权限。它不清空 `ecommerce_lab`。
 

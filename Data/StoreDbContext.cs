@@ -1,10 +1,22 @@
-using System;
-using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
-using MiniStore.Data.Entities;
+using MiniStore.Features.Auth;
+using MiniStore.Features.Carts;
+using MiniStore.Features.Checkout;
+using MiniStore.Features.Customers;
+using MiniStore.Features.Inventory;
+using MiniStore.Features.Marketing;
+using MiniStore.Features.Orders;
+using MiniStore.Features.Payments;
+using MiniStore.Features.Products;
+using MiniStore.Features.Reviews;
+using MiniStore.Features.Shipping;
 
 namespace MiniStore.Data;
 
+/// <summary>
+/// EF Core 与 PostgreSQL 的统一数据入口。DbSet 表示可组合的查询或写入入口，不是已经读入内存的整张表。
+/// partial 允许并发映射放在另一个文件；单次请求中共享上下文，便于跨功能使用同一个事务。
+/// </summary>
 public partial class StoreDbContext : DbContext
 {
     public StoreDbContext(DbContextOptions<StoreDbContext> options)
@@ -64,6 +76,9 @@ public partial class StoreDbContext : DbContext
 
     public virtual DbSet<Warehouse> Warehouses { get; set; }
 
+    // Fluent API 描述实体如何映射到现有表、列、主外键、默认值和索引；描述映射不等于执行建表 SQL。
+    // 例如 ToTable 指定 schema，HasColumnName 映射 snake_case，HasPrecision 映射金额精度。
+    // 数据库结构由 db/*.sql 管理；不要为了重新生成实体而覆盖这里已有的人工修正。
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AdminUser>(entity =>
