@@ -1,6 +1,6 @@
 # 页面与接口契约
 
-前端只消费 DTO；内部 bigint 关联键不作为 API 资源标识。接口路径和请求类型见 [OpenAPI 快照](openapi.json)，运行时 `/openapi/v1.json` 为最新契约。响应 JSON 使用 camelCase。开发环境访问 `/swagger` 可按中文分组调试；Authorize 输入令牌本体。
+前端只消费 DTO；内部 bigint 关联键不作为 API 资源标识。接口路径和请求类型见 [OpenAPI 快照](openapi.json)，运行时 `/openapi/v1.json` 为最新契约。响应 JSON 使用 camelCase。开发环境访问 `/scalar` 可按中文分组调试；Authentication 中选择 Bearer 并输入令牌本体。
 
 全部业务与系统接口声明 WithName、WithSummary、WithDescription 和错误响应。请求字段由 XML 注释生成，JWT 权限从真实路由元数据推导。文档说明不替代运行时校验；下单必须带非空 Idempotency-Key。
 

@@ -48,7 +48,7 @@
 
 `Data/StoreDbContext.cs` 统一映射多个 schema，让跨功能业务共用事务。Dashboard 不拥有新表，不需要凑一个实体；Checkout 的 `Pricing` 是独立纯计价函数。
 
-Endpoints 上的 `WithName`、`WithSummary`、`WithDescription` 和 `ProducesProblem` 描述接口文档；请求 record 的 XML `param` 注释说明 JSON 字段。共享 [OpenApiDocumentation](../Common/OpenApiDocumentation.cs) 根据真实授权元数据生成 JWT 声明，补充通用参数与错误说明。开发环境打开 `/swagger` 可按这些说明调试；文档声明不能替代业务校验。
+Endpoints 上的 `WithName`、`WithSummary`、`WithDescription` 和 `ProducesProblem` 描述接口文档；请求 record 的 XML `param` 注释说明 JSON 字段。共享 [OpenApiDocumentation](../Common/OpenApiDocumentation.cs) 根据真实授权元数据生成 JWT 声明，补充通用参数与错误说明。开发环境打开 Scalar `/scalar` 可按这些说明调试；文档声明不能替代业务校验。
 
 ## 经常遇到的 C# 写法
 
