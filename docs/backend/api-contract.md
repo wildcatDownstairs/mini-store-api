@@ -4,7 +4,7 @@
 
 全部业务与系统接口声明 WithName、WithSummary、WithDescription 和错误响应。请求字段由 XML 注释生成，JWT 权限从真实路由元数据推导。文档说明不替代运行时校验；下单必须带非空 Idempotency-Key。
 
-分页返回 `items / page / pageSize / total`；失败返回 ProblemDetails，业务描述在 `detail`。401 需要重新登录，403 无权限，409 表示状态、报价、库存或版本已变化，不能盲目重试。
+所有接口统一返回 `success / code / msg / data`，不提供 `message` 字段。分页返回 `data.records / current / size / total / pages` 等公司字段（完整示例见下文）；失败描述在 `msg`。401 需要重新登录，403 无权限，409 表示状态、报价、库存或版本已变化，不能盲目重试。
 
 公开查询无需 Token；`/api/me/*` 必须客户登录；`/api/admin/*` 除登录外需要后台身份。运营角色可以写，只读角色只能查询。请求体与 Idempotency-Key 的使用可参考商城 `Checkout.vue` 和可运行的 `scripts/test_api.py`。
 
@@ -84,4 +84,47 @@
 
 ## 响应 DTO 阅读说明
 
-接口响应使用各功能 `*Dtos.cs` 中的具名 record，Service 返回明确类型，OpenAPI 可展示商品、订单、购物车、库存等结构。商品创建使用 `TypedResults.Created`，下单端点明确声明首次创建 201 与幂等重放 200；无响应体的修改操作使用 204。可以从 `ProductService`、`OrderService` 的查询投影追踪字段来源。匿名类型仅用于内部查询中间结果和报价摘要，不作为业务 API 的响应契约。
+接口响应使用各功能 `*Dtos.cs` 中的具名 record，Service 返回明确类型，OpenAPI 可展示商品、订单、购物车、库存等结构。商品创建使用 `TypedResults.Created`，下单端点明确声明首次创建 201 与幂等重放 200；无业务数据的修改操作使用 200，data 为 null。可以从 `ProductService`、`OrderService` 的查询投影追踪字段来源。匿名类型仅用于内部查询中间结果和报价摘要，不作为业务 API 的响应契约。
+
+
+## 公司统一响应结构
+
+成功示例（商品详情）：
+
+```json
+{"success": true, "code": 200, "msg": "Success", "data": {"id": "商品公开 UUID", "name": "日常のカップ"}}
+```
+
+失败示例（HTTP 409）：
+
+```json
+{"success": false, "code": 409, "msg": "库存、退款额度或记录状态已变化，请刷新后重试。", "data": null}
+```
+
+分页示例（`GET /api/store/products?page=1&pageSize=20`，无匹配商品）：
+
+```json
+{
+  "success": true,
+  "code": 200,
+  "msg": "Success",
+  "data": {
+    "countId": "",
+    "current": 1,
+    "maxLimit": 100,
+    "optimizeCountSql": true,
+    "orders": [],
+    "pages": 0,
+    "records": [],
+    "searchCount": true,
+    "size": 20,
+    "total": 0
+  }
+}
+```
+
+字段结构对齐公司 TableModel；`maxLimit` 如实使用本服务已有的 100 条上限（参考项目为 500），请求仍使用 `page/pageSize`。`pages` 为总数除以每页条数后向上取整；越界页的 `records` 为空，但保留实际 `total/pages`。`countId/optimizeCountSql/orders` 为契约兼容字段，本服务不使用 MyBatis：排序实际由 Service 决定，计数由 EF Core 执行。
+
+`code` 与 HTTP 状态一致，创建商品及首次下单均为 201。原 204 操作统一返回 HTTP 200 和 `{"success":true,"code":200,"msg":"Success","data":null}`，因为 HTTP 204 不允许响应体。品牌、地址、分类等非分页列表仍是 `data` 中的数组；订单详情和购物车里的 `items` 是业务字段，保留原名。
+
+`Common/ApiResponse.cs` 定义外壳和分页类型；Endpoints 包装成功 DTO，`ApiExceptionHandler` 及状态码中间件包装错误。`AddProblemDetails` 只满足框架异常中间件依赖，不改变实际返回结构。OpenAPI JSON、Scalar 页面与静态资源不包裹。商城和管理后台只在统一 HTTP 入口解包 `data`，错误只读取 `msg`。

@@ -16,7 +16,7 @@ public static class CheckoutEndpoints
                     ClaimsPrincipal user,
                     CheckoutService checkout,
                     CancellationToken ct
-                ) => checkout.QuoteAsync(user.ActorId(), r, ct)
+                ) => ApiResponse.OkAsync(checkout.QuoteAsync(user.ActorId(), r, ct))
             )
             .RequireAuthorization("Customer")
             .WithTags("结算")
@@ -25,12 +25,12 @@ public static class CheckoutEndpoints
             .WithDescription(
                 "需要客户身份。提交本人地址 UUID、配送方式及可选优惠码；金额由服务端计算。报价令牌十分钟有效，不预占库存；优惠券不可用返回 422。"
             )
-            .ProducesProblem(400)
-            .ProducesProblem(401)
-            .ProducesProblem(403)
-            .ProducesProblem(409)
-            .ProducesProblem(422)
-            .ProducesProblem(500);
+            .Produces<ApiResponse<object?>>(400)
+            .Produces<ApiResponse<object?>>(401)
+            .Produces<ApiResponse<object?>>(403)
+            .Produces<ApiResponse<object?>>(409)
+            .Produces<ApiResponse<object?>>(422)
+            .Produces<ApiResponse<object?>>(500);
 
         app.MapPost(
                 "/api/me/orders",
@@ -47,13 +47,16 @@ public static class CheckoutEndpoints
                         r,
                         ct
                     );
-                    return Results.Json(order, statusCode: order.Replayed ? 200 : 201);
+                    return Results.Json(
+                        ApiResponse.Ok(order, order.Replayed ? 200 : 201),
+                        statusCode: order.Replayed ? 200 : 201
+                    );
                 }
             )
             .RequireAuthorization("Customer")
             .WithTags("结算")
-            .Produces<OrderCreated>(StatusCodes.Status201Created)
-            .Produces<OrderCreated>(StatusCodes.Status200OK)
+            .Produces<ApiResponse<OrderCreated>>(StatusCodes.Status201Created)
+            .Produces<ApiResponse<OrderCreated>>(StatusCodes.Status200OK)
             .AddOpenApiOperationTransformer(
                 (operation, context, ct) =>
                 {
@@ -83,11 +86,11 @@ public static class CheckoutEndpoints
             .WithDescription(
                 "需要客户身份及 Idempotency-Key 请求头。用报价令牌与相同地址、配送、优惠创建订单快照，在一个事务中预占单仓库存、核销优惠和转换购物车。首次成功返回 201；相同键和内容重放返回原订单及 200。同键不同内容、报价过期或库存变化返回 409；优惠不可用返回 422。"
             )
-            .ProducesProblem(400)
-            .ProducesProblem(401)
-            .ProducesProblem(403)
-            .ProducesProblem(409)
-            .ProducesProblem(422)
-            .ProducesProblem(500);
+            .Produces<ApiResponse<object?>>(400)
+            .Produces<ApiResponse<object?>>(401)
+            .Produces<ApiResponse<object?>>(403)
+            .Produces<ApiResponse<object?>>(409)
+            .Produces<ApiResponse<object?>>(422)
+            .Produces<ApiResponse<object?>>(500);
     }
 }

@@ -241,7 +241,7 @@ public sealed class OrderService(StoreDbContext db)
     }
 
     /// <summary>分页查询订单；客户入口限制本人，后台入口可跨客户，二者复用同一投影。</summary>
-    public async Task<PageResult<OrderSummaryDto>> ListAsync(
+    public async Task<TableModel<OrderSummaryDto>> ListAsync(
         ListQuery q,
         long? customer,
         CancellationToken ct

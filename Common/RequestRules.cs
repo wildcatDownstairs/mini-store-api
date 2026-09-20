@@ -3,9 +3,6 @@ using Microsoft.EntityFrameworkCore;
 
 namespace MiniStore.Common;
 
-/// <summary>record 适合表达只携带数据的请求或响应；泛型 T 使各种列表共用分页外壳。</summary>
-public sealed record PageResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int Total);
-
 // 构造参数的默认值会被 Minimal API 当作可选查询参数；属性初始化器不会。
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
@@ -75,7 +72,7 @@ public static class Rules
         Guid.Parse(user.FindFirstValue("sub")!);
 
     /// <summary>先计数，再在 SQL 中执行 OFFSET/LIMIT；调用方需预先提供稳定排序，两次查询不是同一快照。</summary>
-    public static async Task<PageResult<T>> PageAsync<T>(
+    public static async Task<TableModel<T>> PageAsync<T>(
         this IQueryable<T> source,
         ListQuery query,
         CancellationToken ct

@@ -17,7 +17,7 @@ public static class OpenApiDocumentation
                     document.Info.Title = "Mini Store 电商 API";
                     document.Info.Version = "v1";
                     document.Info.Description =
-                        "商城与管理后台共用的学习接口。公开标识使用 UUID；金额为 JPY，时间使用带时区的 ISO 8601。具体税前/含税语义见各 DTO。错误采用 ProblemDetails；模拟支付不产生真实资金流。";
+                        "商城与管理后台共用的学习接口。公开标识使用 UUID；金额为 JPY，时间使用带时区的 ISO 8601。具体税前/含税语义见各 DTO。所有业务响应使用 success/code/msg/data，分页数据在 data.records 中；模拟支付不产生真实资金流。";
                     document.Components ??= new OpenApiComponents();
                     document.Components.SecuritySchemes ??=
                         new Dictionary<string, IOpenApiSecurityScheme>();
@@ -65,7 +65,7 @@ public static class OpenApiDocumentation
                                     : "路径资源的公开 UUID（不是数据库 bigint 主键）；具体资源见接口说明。"
                                 : item.Name?.ToLowerInvariant() switch
                                 {
-                                    "page" => "页码，1～10000，默认 1；超过末页返回空 items。",
+                                    "page" => "页码，1～10000，默认 1；超过末页返回空 records。",
                                     "pagesize" => "每页条数，1～100，默认 20。",
                                     "q" => "关键词，最多 100 字；搜索哪些字段见本接口说明。",
                                     "status" =>
@@ -94,17 +94,15 @@ public static class OpenApiDocumentation
                             "200" =>
                                 "成功；返回 JSON。下单接口的 200 表示返回已成功的幂等请求结果。",
                             "201" => "首次创建成功；返回新资源信息。",
-                            "204" => "操作成功，无响应体。",
-                            "400" =>
-                                "请求格式、参数或数据库约束不满足；读取 ProblemDetails 的 title/detail。",
+                            "204" => "历史状态；本服务无返回值的操作使用 200、data=null。",
+                            "400" => "请求格式、参数或数据库约束不满足；读取响应的 msg。",
                             "401" => "未登录、令牌无效或账号不可用；登录端点也可能表示凭据错误。",
                             "403" => "身份无权操作，或当前环境禁止模拟支付/退款。",
                             "404" => "记录不存在、不可见或不属于当前客户。",
                             "409" => "版本、状态、唯一性、幂等内容、库存或退款额度发生冲突。",
                             "422" => "优惠券未满足有效期、门槛或可用次数等业务条件。",
                             "429" => "注册或登录请求超过限流额度，请稍后重试。",
-                            "500" =>
-                                "服务内部错误；不返回 SQL 或凭据，异常响应含 traceId 用于查日志。",
+                            "500" => "服务内部错误；不返回 SQL 或凭据，追踪号仅记录在服务日志中。",
                             "503" => "健康检查未能连接数据库。",
                             _ => item.Description,
                         };

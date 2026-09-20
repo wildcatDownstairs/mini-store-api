@@ -149,7 +149,7 @@ public sealed class ProductService(StoreDbContext db)
     }
 
     /// <summary>组合筛选和稳定排序后在数据库分页；admin 由端点指定，不能由查询参数提升权限。</summary>
-    public async Task<PageResult<ProductSummaryDto>> ListAsync(
+    public async Task<TableModel<ProductSummaryDto>> ListAsync(
         ListQuery q,
         bool admin,
         CancellationToken ct

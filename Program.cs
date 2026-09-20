@@ -37,7 +37,8 @@ if (args.Contains("--create-admin"))
 }
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 128 * 1024);
 
-// 统一错误响应使用 ProblemDetails；异常处理器把约束冲突等转换成可理解的 HTTP 错误。
+// 异常和无响应体的 HTTP 错误都使用公司响应结构；仍保留真实 HTTP 状态。
+// 异常中间件需要兜底服务才能启动；实际异常均由下方处理器输出 ApiResponse。
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
@@ -107,19 +108,22 @@ app.UseExceptionHandler();
 app.UseStatusCodePages(async context =>
 {
     var status = context.HttpContext.Response.StatusCode;
-    await Results
-        .Problem(
-            statusCode: status,
-            title: status switch
+    await context.HttpContext.Response.WriteAsJsonAsync(
+        ApiResponse.Error(
+            status,
+            status switch
             {
-                401 => "unauthorized",
-                403 => "forbidden",
-                404 => "not_found",
-                429 => "too_many_requests",
-                _ => "request_failed",
+                400 => "请求格式或参数不正确。",
+                401 => "请重新登录。",
+                403 => "没有执行此操作的权限。",
+                404 => "请求的资源不存在。",
+                405 => "该接口不支持此请求方法。",
+                429 => "操作太频繁，请稍后再试。",
+                503 => "数据库暂时不可用。",
+                _ => "请求失败，请稍后重试。",
             }
         )
-        .ExecuteAsync(context.HttpContext);
+    );
 });
 app.UseCors();
 app.UseAuthentication();
@@ -129,24 +133,26 @@ app.MapGet(
         "/health",
         async (StoreDbContext db, CancellationToken ct) =>
             await db.Database.CanConnectAsync(ct)
-                ? Results.Ok(new HealthResponse("healthy"))
+                ? Results.Ok(ApiResponse.Ok(new HealthResponse("healthy")))
                 : Results.StatusCode(503)
     )
-    .Produces<HealthResponse>()
+    .Produces<ApiResponse<HealthResponse>>()
     .WithName("GetHealth")
     .WithSummary("检查服务与数据库连接")
     .WithDescription(
         "公开接口。数据库可连接返回 200 和 status=healthy，不可连接返回 503；不返回连接串或密码。"
     )
     .WithTags("系统")
-    .ProducesProblem(500)
-    .ProducesProblem(503);
+    .Produces<ApiResponse<object?>>(500)
+    .Produces<ApiResponse<object?>>(503);
 app.MapGet(
         "/api/config",
         (IWebHostEnvironment env, IConfiguration config) =>
-            new PublicConfigurationResponse(
-                env.IsDevelopment() && config.GetValue<bool>("Features:SimulatedPayments"),
-                "JPY"
+            ApiResponse.Ok(
+                new PublicConfigurationResponse(
+                    env.IsDevelopment() && config.GetValue<bool>("Features:SimulatedPayments"),
+                    "JPY"
+                )
             )
     )
     .WithName("GetPublicConfiguration")
@@ -155,7 +161,7 @@ app.MapGet(
         "公开接口。返回 JPY 币种及当前是否允许模拟支付；模拟开关只有 Development 且显式启用才为 true，不包含服务器密钥。"
     )
     .WithTags("系统")
-    .ProducesProblem(500);
+    .Produces<ApiResponse<object?>>(500);
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();

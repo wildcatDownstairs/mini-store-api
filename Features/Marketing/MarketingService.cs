@@ -9,7 +9,7 @@ namespace MiniStore.Features.Marketing;
 public sealed class MarketingService(StoreDbContext db)
 {
     /// <summary>分页筛选优惠券；active 指启用开关，是否在有效期内还需结算时校验。</summary>
-    public async Task<PageResult<CouponDto>> ListAsync(ListQuery q, CancellationToken ct)
+    public async Task<TableModel<CouponDto>> ListAsync(ListQuery q, CancellationToken ct)
     {
         q.Validate();
         var source = db.Coupons.AsNoTracking();

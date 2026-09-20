@@ -8,7 +8,7 @@ namespace MiniStore.Features.Reviews;
 public sealed class ReviewService(StoreDbContext db)
 {
     /// <summary>公开读取仍上架商品的已发布评价；作者仅显示姓氏加称呼。</summary>
-    public async Task<PageResult<ProductReviewDto>> ListProductAsync(
+    public async Task<TableModel<ProductReviewDto>> ListProductAsync(
         Guid id,
         ListQuery q,
         CancellationToken ct
@@ -81,7 +81,7 @@ public sealed class ReviewService(StoreDbContext db)
     }
 
     /// <summary>后台分页检索评价，可查看待审核与拒绝状态及对应订单。</summary>
-    public async Task<PageResult<ReviewSummaryDto>> ListAdminAsync(
+    public async Task<TableModel<ReviewSummaryDto>> ListAdminAsync(
         ListQuery q,
         CancellationToken ct
     )
