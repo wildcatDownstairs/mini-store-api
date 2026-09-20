@@ -1,0 +1,3 @@
+# 使用本机 libpq；macOS 安装 PostgreSQL 已自带。
+psycopg==3.3.5
+Faker==40.39.0

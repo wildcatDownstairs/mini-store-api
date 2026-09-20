@@ -1,0 +1,150 @@
+"""真实 PostgreSQL + HTTP 集成检查。仅创建/清理本次随机命名的隔离库，绝不重置 ecommerce_lab。
+
+运行：.venv/bin/python scripts/test_api.py。凭据随机生成，只在进程内使用。
+"""
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import subprocess
+import time
+import urllib.request
+import urllib.error
+import uuid
+import psycopg
+from psycopg import sql
+from run_api import ROOT, dotnet
+
+name = 'ecommerce_lab_api_test_' + uuid.uuid4().hex[:12]
+with socket.socket() as sock:
+    sock.bind(('127.0.0.1', 0))
+    port = sock.getsockname()[1]
+base = f'http://127.0.0.1:{port}'
+env = {**os.environ, 'PGHOST': os.getenv('PGHOST', '/tmp'), 'PGDATABASE': name,
+       'Auth__SigningKey': secrets.token_urlsafe(48), 'ASPNETCORE_ENVIRONMENT': 'Development',
+       'ASPNETCORE_URLS': base, 'Features__SimulatedPayments': 'true'}
+# 显式测试库参数优先，不允许继承生产连接串。
+env.pop('ConnectionStrings__EcommerceLab', None)
+password = secrets.token_urlsafe(24)
+process = None
+created = False
+checks = 0
+
+def request(path, method='GET', body=None, token=None, expected=200, headers=None):
+    global checks
+    h = {'Content-Type': 'application/json', **(headers or {})}
+    if token: h['Authorization'] = 'Bearer ' + token
+    req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(), headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as res: status, raw = res.status, res.read()
+    except urllib.error.HTTPError as e: status, raw = e.code, e.read()
+    assert status in (expected if isinstance(expected, tuple) else (expected,)), (method, path, status, raw.decode()[:600])
+    checks += 1
+    return json.loads(raw) if raw else None
+
+def post(path, body=None, token=None, expected=200, headers=None):
+    return request(path, 'POST', body, token, expected, headers)
+
+try:
+    subprocess.run([dotnet(), 'build', '--no-restore'], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
+    with psycopg.connect(dbname='postgres', host=env['PGHOST'], autocommit=True) as conn:
+        conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+    created = True
+    with psycopg.connect(dbname=name, host=env['PGHOST']) as conn:
+        for file in sorted((ROOT/'db').glob('0[1-7]_*.sql')): conn.execute(file.read_text())
+        conn.execute((ROOT/'db/11_api.sql').read_text())
+        conn.execute("INSERT INTO catalog.brands(name,slug,country_code) VALUES('検証工房','check-brand','JP')")
+        conn.execute("INSERT INTO catalog.categories(name,slug) VALUES('Home','home'),('Food','food')")
+        conn.execute("INSERT INTO inventory.warehouses(code,name,postal_code,prefecture,city,address) VALUES('QA-TOKYO','検証東京倉庫','100-0001','東京都','千代田区','千代田1-1')")
+        conn.execute((ROOT/'db/10_comments.sql').read_text())
+    dll = ROOT/'bin/Debug/net10.0/mini-store.dll'
+    for role in ('operator', 'viewer'):
+        subprocess.run([dotnet(), str(dll), '--create-admin'], cwd=ROOT, env={**env, 'ADMIN_EMAIL': role+'@qa.example', 'ADMIN_PASSWORD': password, 'ADMIN_ROLE': role}, stdout=subprocess.DEVNULL, check=True)
+    logdir=ROOT/'.local'; logdir.mkdir(exist_ok=True)
+    with (logdir/'api-test.log').open('w') as log:
+        process = subprocess.Popen([dotnet(), str(dll)], cwd=ROOT, env=env, stdout=log, stderr=log)
+        for _ in range(100):
+            try: request('/health'); break
+            except (urllib.error.URLError, ConnectionError): time.sleep(.2)
+        else: raise RuntimeError('测试服务器启动失败，检查 .local/api-test.log')
+        operator = post('/api/admin/auth/login', {'email':'operator@qa.example','password':password})['accessToken']
+        viewer = post('/api/admin/auth/login', {'email':'viewer@qa.example','password':password})['accessToken']
+        customers = [post('/api/auth/register', {'email':f'customer{i}@qa.example','password':password,'firstName':'美咲','lastName':'検証'}) for i in range(2)]
+        token = customers[0]['accessToken']; stranger = customers[1]['accessToken']
+        request('/api/admin/orders', expected=401)
+        request('/api/admin/orders', token=token, expected=403)
+        request('/api/store/products?pageSize=0', expected=400)
+        brands=request('/api/admin/brands',token=operator); cats=request('/api/admin/categories',token=operator)
+        product={'name':'検証用・日常のカップ','slug':'qa-cup','description':'API 真实闭环测试商品','brandId':brands[0]['id'],'status':'active','categoryIds':[cats[0]['id']], 'variants':[{'id':None,'sku':'QA-CUP','name':'白','price':1000,'isActive':True,'weightGrams':250,'attributes':{'color':'white'}}]}
+        post('/api/admin/products',product,viewer,403)
+        p=post('/api/admin/products',product,operator,201); pid=p['id']; variant=p['variants'][0]['id']
+        request('/api/admin/products/'+pid+'/status','PATCH',{'status':'active','version':p['version']},operator,204)
+        request('/api/admin/products/'+pid+'/status','PATCH',{'status':'inactive','version':p['version']},operator,409)
+        warehouse=request('/api/admin/inventory/warehouses',token=operator)[0]['id']
+        stockpath=f'/api/admin/inventory/stocks/{warehouse}/{variant}/adjust'
+        post(stockpath,{'quantity':10,'reason':'隔离测试进货'},operator,204)
+        address={'addressType':'shipping','recipientName':'検証 美咲','postalCode':'100-0001','countryCode':'JP','prefecture':'東京都','city':'千代田区','addressLine1':'千代田1-1','addressLine2':None,'phone':'09012345678','isDefault':True}
+        addr=post('/api/me/addresses',address,token)
+        request('/api/me/addresses/'+addr['id'],'DELETE',token=stranger,expected=404)
+        for who in [token,stranger]: request('/api/me/cart/items/'+variant,'PUT',{'quantity':2},who,204)
+        # 同一用户多地址模型、原子默认地址切换。
+        addr2=post('/api/me/addresses',{**address,'addressLine1':'丸の内2-2'},token)
+        assert sum(a['isDefault'] for a in request('/api/me/addresses',token=token))==1
+        now=datetime.now(timezone.utc)
+        coupon={'code':'QA10','name':'検証优惠','discountType':'percentage','discountValue':10,'minOrderAmount':0,'maxDiscountAmount':500,'usageLimit':10,'startsAt':(now-timedelta(days=1)).isoformat(),'endsAt':(now+timedelta(days=1)).isoformat(),'isActive':True}
+        post('/api/admin/coupons',coupon,operator)
+        quote_body={'addressId':addr2['id'],'shippingMethod':'standard','couponCode':'QA10'}
+        q=post('/api/me/checkout/quote',quote_body,token)
+        assert q['totals']=={'subtotal':2000,'discountTotal':200,'taxTotal':180,'shippingTotal':500,'grandTotal':2480,'currency':'JPY'},q
+        body={**quote_body,'quoteToken':q['quoteToken']}; key=str(uuid.uuid4())
+        def place(_):return post('/api/me/orders',body,token,(200,201),{'Idempotency-Key':key})
+        with ThreadPoolExecutor(2) as pool: orders=list(pool.map(place,range(2)))
+        assert orders[0]['id']==orders[1]['id']; oid=orders[0]['id']
+        post('/api/me/orders',{**body,'shippingMethod':'express'},token,409,{'Idempotency-Key':key})
+        request('/api/me/orders/'+oid,token=stranger,expected=404)
+        detail=request('/api/admin/orders/'+oid,token=operator)
+        assert detail['fulfillmentWarehouseId']==warehouse
+        assert request('/api/admin/orders',token=operator)['total']==1
+        post(stockpath,{'quantity':-9,'reason':'拒绝扣掉预占库存'},operator,409)
+        post('/api/me/orders/'+oid+'/simulate-payment',{'success':False},token)
+        post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
+        post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
+        post('/api/admin/orders/'+oid+'/process',token=operator,expected=204)
+        post('/api/admin/orders/'+oid+'/ship',{'warehouseId':warehouse,'carrier':'Yamato','trackingNumber':'QA123456789'},operator)
+        post('/api/admin/orders/'+oid+'/deliver',token=operator,expected=204)
+        detail=request('/api/me/orders/'+oid,token=token)
+        assert detail['status']=='delivered'
+        item=detail['items'][0]['id']
+        rev=post(f'/api/me/orders/{oid}/items/{item}/review',{'rating':5,'title':'好用','content':'已收到商品。'},token)
+        post('/api/admin/reviews/'+rev['id']+'/review',{'status':'published'},operator,204)
+        assert request(f'/api/store/products/{pid}/reviews')['total']==1
+        payment=next(p for p in detail['payments'] if p['status']=='captured')
+        def refund(_):return post('/api/admin/refunds',{'paymentId':payment['id'],'amount':2000,'reason':'并发超额保护'},operator,(200,409))
+        with ThreadPoolExecutor(2) as pool: refunds=list(pool.map(refund,range(2)))
+        succeeded=[r for r in refunds if 'id' in r];assert len(succeeded)==1
+        post('/api/admin/refunds/'+succeeded[0]['id']+'/review',{'approved':True},operator,204)
+        # 再次结算 -> 取消，验证已转换购物车不会被当成唯一一对一导航。
+        request('/api/me/cart/items/'+variant,'PUT',{'quantity':1},token,204)
+        q=post('/api/me/checkout/quote',quote_body,token)
+        cancelled=post('/api/me/orders',{**quote_body,'quoteToken':q['quoteToken']},token,201,{'Idempotency-Key':str(uuid.uuid4())})
+        post('/api/me/orders/'+cancelled['id']+'/cancel',token=token,expected=204)
+        for resource in ['products','orders','customers','payments','refunds','shipments','coupons','reviews','inventory/stocks','inventory/stock-movements']:
+            result=request('/api/admin/'+resource+'?pageSize=2',token=viewer);assert isinstance(result['items'],list)
+        request('/api/admin/dashboard',token=operator)
+        request('/openapi/v1.json')
+        # 通用 SQL 审计包含订单合计、退款、库存流水、所有外键和时间线。
+        with psycopg.connect(dbname=name,host=env['PGHOST']) as conn:
+            conn.execute((ROOT/'db/08_verify.sql').read_text())
+            assert conn.execute('SELECT coalesce(sum(violations),0) FROM lab_checks').fetchone()[0]==0
+        print(f'PASS: {checks} HTTP checks; checkout idempotency, authorization, concurrency, fulfillment, refund, reviews and SQL audit.')
+finally:
+    if process:
+        process.terminate()
+        try: process.wait(timeout=10)
+        except subprocess.TimeoutExpired: process.kill();process.wait()
+    if created:
+        with psycopg.connect(dbname='postgres',host=env['PGHOST'],autocommit=True) as conn:
+            conn.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(name)))
