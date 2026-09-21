@@ -166,7 +166,7 @@ public sealed class ProductService(StoreDbContext db)
         }
         if (!string.IsNullOrWhiteSpace(q.Q))
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(p =>
                 EF.Functions.ILike(p.Name, pattern)
                 || EF.Functions.ILike(p.Brand.Name, pattern)

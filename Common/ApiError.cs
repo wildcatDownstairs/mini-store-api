@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -24,10 +25,14 @@ public sealed class ApiExceptionHandler(ILogger<ApiExceptionHandler> logger) : I
         CancellationToken ct
     )
     {
+        // 客户端断开后继续写响应或记成服务器错误没有意义；查询使用的就是这个取消标记。
+        if (context.RequestAborted.IsCancellationRequested)
+            return true;
         var pg = error as PostgresException ?? error.InnerException as PostgresException;
         var (status, _, detail) = error switch
         {
             ApiError a => (a.Status, a.Code, a.Message),
+            JsonException => (400, "invalid_request", "请求格式或参数不正确。"),
             DbUpdateConcurrencyException => (
                 409,
                 "stale_version",

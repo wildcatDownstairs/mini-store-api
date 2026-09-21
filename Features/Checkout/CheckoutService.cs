@@ -169,7 +169,8 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
         var order = new Order
         {
             CustomerId = customer,
-            OrderNumber = $"MS-{now:yyyyMMdd}-{Guid.NewGuid():N}",
+            // 数据库订单号上限 40 字符。只生成一次并截到 35 字符，兼顾可读性与唯一性。
+            OrderNumber = $"MS-{now:yyyyMMdd}-{Guid.NewGuid():N}"[..35],
             Status = "confirmed",
             Currency = "JPY",
             Subtotal = totals.Subtotal,
@@ -181,8 +182,6 @@ public sealed class CheckoutService(StoreDbContext db, IDataProtectionProvider p
             CreatedAt = now,
             UpdatedAt = now,
         };
-        // 数据库订单号上限 40 字符；日期 + 随机片段兼顾可读性与唯一性。
-        order.OrderNumber = $"MS-{now:yyyyMMdd}-{Guid.NewGuid():N}"[..35];
         foreach (var line in data.Quote.Lines)
         {
             // 复制名称与成交金额而不是只存外键，商品以后改名、调价也不能改写历史订单。

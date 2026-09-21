@@ -92,7 +92,7 @@ public sealed class ReviewService(StoreDbContext db)
             source = source.Where(r => r.Status == q.Status);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(r =>
                 EF.Functions.ILike(r.Product.Name, pattern)
                 || r.Content != null && EF.Functions.ILike(r.Content, pattern)

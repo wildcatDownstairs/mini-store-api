@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MiniStore.Features.Products;
 
@@ -85,13 +86,13 @@ public sealed record ProductRequest(
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
 /// <remarks><c>Version</c>：上次读取的商品版本；不匹配时返回 409，防止覆盖并发修改。</remarks>
 /// <param name="Status">目标商品状态：draft、active、inactive、archived。</param>
-/// <param name="Version">最近读取的商品 xmin 版本；不匹配返回 409。</param>
+/// <param name="Version">最近读取的商品 xmin 版本；必须提交，省略返回 400，不匹配返回 409。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
     Justification = "ASP.NET Core 请求体绑定会自动创建此类型。"
 )]
-public sealed record ProductStatusRequest(string Status, uint Version);
+public sealed record ProductStatusRequest(string Status, [property: JsonRequired] uint Version);
 
 /// <summary>分类树节点；Children 保存直接子节点，叶子节点的集合为空。</summary>
 public sealed record CategoryNode(Guid Id, string Name, string Slug, List<CategoryNode> Children);

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MiniStore.Features.Marketing;
 
 // DTO 定义接口输入输出，与数据库实体分开；对外只传递业务需要的字段。
@@ -35,13 +37,13 @@ public sealed record CouponRequest(
 );
 
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
-/// <param name="IsActive">是否启用。</param>
+/// <param name="IsActive">是否启用。此字段必填，省略时返回 400，不会默认停用。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
     Justification = "ASP.NET Core 请求体绑定会自动创建此类型。"
 )]
-public sealed record CouponStatusRequest(bool IsActive);
+public sealed record CouponStatusRequest([property: JsonRequired] bool IsActive);
 
 /// <summary>优惠券维护信息；IsActive 是启用开关，有效期、门槛和次数仍在结算时校验。</summary>
 public sealed record CouponDto(

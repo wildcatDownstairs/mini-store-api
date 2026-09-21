@@ -37,7 +37,7 @@ public sealed class InventoryService(StoreDbContext db)
             source = source.Where(s => s.QuantityOnHand - s.QuantityReserved < s.ReorderLevel);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(s =>
                 EF.Functions.ILike(s.Variant.Sku, pattern)
                 || EF.Functions.ILike(s.Variant.Product.Name, pattern)
@@ -74,7 +74,7 @@ public sealed class InventoryService(StoreDbContext db)
             source = source.Where(m => m.Stock.Warehouse.PublicId == q.Warehouse);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(m => EF.Functions.ILike(m.Stock.Variant.Sku, pattern));
         }
         return await source

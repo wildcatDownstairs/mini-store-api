@@ -7994,7 +7994,7 @@
         "properties": {
           "isActive": {
             "type": "boolean",
-            "description": "是否启用。"
+            "description": "是否启用。此字段必填，省略时返回 400，不会默认停用。"
           }
         },
         "description": "请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。"
@@ -9451,7 +9451,7 @@
               "integer",
               "string"
             ],
-            "description": "最近读取的商品 xmin 版本；不匹配返回 409。",
+            "description": "最近读取的商品 xmin 版本；必须提交，省略返回 400，不匹配返回 409。",
             "format": "uint32"
           }
         },
@@ -9851,7 +9851,7 @@
         "properties": {
           "approved": {
             "type": "boolean",
-            "description": "是否批准退款；批准仅在开发模拟模式下可用。"
+            "description": "是否批准退款；批准仅在开发模拟模式下可用。此字段必填，省略时返回 400，不会默认拒绝。"
           }
         },
         "description": "请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。"
@@ -10222,7 +10222,7 @@
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "true 模拟成功收款；false 记录一次失败尝试，不产生真实资金流。"
+            "description": "true 模拟成功收款；false 记录一次失败尝试，不产生真实资金流。此字段必填，省略时返回 400，不会默认记成失败。"
           }
         },
         "description": "请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。"
