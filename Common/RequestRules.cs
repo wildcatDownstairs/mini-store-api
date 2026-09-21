@@ -56,6 +56,20 @@ public static class Rules
         return value!.Trim();
     }
 
+    /// <summary>
+    /// 生成 PostgreSQL ILIKE 的包含匹配。先转义 \、% 和 _，再包上两侧百分号。
+    /// 默认转义符是反斜杠，因此用户输入按字面量搜索，不会变成通配符。
+    /// </summary>
+    public static string ContainsPattern(string value)
+    {
+        var literal = value
+            .Trim()
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+        return "%" + literal + "%";
+    }
+
     /// <summary>当前业务只接受范围内的整数日元；NUMERIC 的精度能力不等于 API 允许任意小数。</summary>
     public static void Money(decimal value, string label, bool positive = false) =>
         Require(

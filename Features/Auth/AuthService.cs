@@ -49,11 +49,13 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
     {
         var email = Email(request.Email);
         var customer = await db.Customers.SingleOrDefaultAsync(x => x.Email.ToLower() == email, ct);
+        // 先完成哈希比较，再判断账号是否存在，避免用耗时区分未注册邮箱。
+        var passwordOk = PasswordMatches(customer?.PasswordHash, request.Password);
         if (
             customer is null
             || customer.Status != "active"
             || customer.DeletedAt != null
-            || !Verify(customer.PasswordHash, request.Password)
+            || !passwordOk
         )
             throw new ApiError(
                 401,
@@ -79,7 +81,8 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
         var admin = await db
             .AdminUsers.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Email.ToLower() == email, ct);
-        if (admin is null || !admin.IsActive || !Verify(admin.PasswordHash, request.Password))
+        var passwordOk = PasswordMatches(admin?.PasswordHash, request.Password);
+        if (admin is null || !admin.IsActive || !passwordOk)
             throw new ApiError(401, "invalid_credentials", "管理员邮箱或密码错误，或账户不可用。");
         return Issue(admin.PublicId, admin.DisplayName, admin.Role, "admin", config);
     }
@@ -100,6 +103,23 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
     /// <summary>校验输入密码长度；此方法不负责哈希，存储前由 PasswordHasher 处理。</summary>
     private static void Password(string? value) =>
         Rules.Require(value is { Length: >= 12 and <= 128 }, "密码长度须为 12～128 字符。");
+
+    // 固定占位哈希只用于补齐不存在或假哈希账号的计算耗时，不会保存，也不能当作登录成功。
+    private static readonly string DummyHash = new PasswordHasher<object>().HashPassword(
+        new object(),
+        "mini-store-timing-placeholder"
+    );
+
+    /// <summary>
+    /// 账号不存在或哈希不是 Identity 格式时，仍对占位哈希做一次相同成本的校验。
+    /// 只有数据库里的真实哈希校验通过才返回 true。
+    /// </summary>
+    private static bool PasswordMatches(string? hash, string? password)
+    {
+        var realHash = hash != null && hash.StartsWith("AQAAAA", StringComparison.Ordinal);
+        var matched = Verify(realHash ? hash! : DummyHash, password);
+        return realHash && matched;
+    }
 
     /// <summary>验证 ASP.NET Identity 格式的密码哈希；哈希不可逆，不能解密还原密码。</summary>
     private static bool Verify(string hash, string? password)

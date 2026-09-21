@@ -255,7 +255,7 @@ public sealed class OrderService(StoreDbContext db)
             orders = orders.Where(o => o.Status == q.Status);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             orders = orders.Where(o =>
                 EF.Functions.ILike(o.OrderNumber, pattern)
                 || EF.Functions.ILike(o.Customer.Email, pattern)

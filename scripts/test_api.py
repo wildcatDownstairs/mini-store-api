@@ -100,10 +100,13 @@ try:
         request('/api/config', 'DELETE', expected=405)
         empty = request('/api/store/products?q=does-not-exist')
         assert empty['records'] == [] and empty['pages'] == 0 and empty['current'] == 1
+        # 下划线必须按字面量搜索；未转义时 ILIKE 会把它当成单字符通配符并命中全部商品。
+        assert request('/api/store/products?q=_')['records'] == []
         brands=request('/api/admin/brands',token=operator); cats=request('/api/admin/categories',token=operator)
         product={'name':'検証用・日常のカップ','slug':'qa-cup','description':'API 真实闭环测试商品','brandId':brands[0]['id'],'status':'active','categoryIds':[cats[0]['id']], 'variants':[{'id':None,'sku':'QA-CUP','name':'白','price':1000,'isActive':True,'weightGrams':250,'attributes':{'color':'white'}}]}
         post('/api/admin/products',product,viewer,403)
         p=post('/api/admin/products',product,operator,201); pid=p['id']; variant=p['variants'][0]['id']
+        request('/api/admin/products/'+pid+'/status','PATCH',{'status':'active'},operator,400)
         request('/api/admin/products/'+pid+'/status','PATCH',{'status':'active','version':p['version']},operator,200)
         request('/api/admin/products/'+pid+'/status','PATCH',{'status':'inactive','version':p['version']},operator,409)
         warehouse=request('/api/admin/inventory/warehouses',token=operator)[0]['id']
@@ -118,7 +121,8 @@ try:
         assert sum(a['isDefault'] for a in request('/api/me/addresses',token=token))==1
         now=datetime.now(timezone.utc)
         coupon={'code':'QA10','name':'検証优惠','discountType':'percentage','discountValue':10,'minOrderAmount':0,'maxDiscountAmount':500,'usageLimit':10,'startsAt':(now-timedelta(days=1)).isoformat(),'endsAt':(now+timedelta(days=1)).isoformat(),'isActive':True}
-        post('/api/admin/coupons',coupon,operator)
+        coupon_id = post('/api/admin/coupons',coupon,operator)['id']
+        request('/api/admin/coupons/'+coupon_id+'/status','PATCH', {}, operator, 400)
         quote_body={'addressId':addr2['id'],'shippingMethod':'standard','couponCode':'QA10'}
         q=post('/api/me/checkout/quote',quote_body,token)
         assert q['totals']=={'subtotal':2000,'discountTotal':200,'taxTotal':180,'shippingTotal':500,'grandTotal':2480,'currency':'JPY'},q
@@ -132,6 +136,7 @@ try:
         assert detail['fulfillmentWarehouseId']==warehouse
         assert request('/api/admin/orders',token=operator)['total']==1
         post(stockpath,{'quantity':-9,'reason':'拒绝扣掉预占库存'},operator,409)
+        post('/api/me/orders/'+oid+'/simulate-payment', {}, token, 400)
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':False},token)
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
@@ -148,6 +153,7 @@ try:
         def refund(_):return post('/api/admin/refunds',{'paymentId':payment['id'],'amount':2000,'reason':'并发超额保护'},operator,(200,409))
         with ThreadPoolExecutor(2) as pool: refunds=list(pool.map(refund,range(2)))
         succeeded=[r for r in refunds if 'id' in r];assert len(succeeded)==1
+        post('/api/admin/refunds/'+succeeded[0]['id']+'/review', {}, operator, 400)
         post('/api/admin/refunds/'+succeeded[0]['id']+'/review',{'approved':True},operator,200)
         # 再次结算 -> 取消，验证已转换购物车不会被当成唯一一对一导航。
         request('/api/me/cart/items/'+variant,'PUT',{'quantity':1},token,200)
