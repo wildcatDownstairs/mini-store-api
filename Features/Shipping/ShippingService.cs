@@ -20,7 +20,7 @@ public sealed class ShippingService(StoreDbContext db, OrderService orders)
             source = source.Where(s => s.Status == q.Status);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(s =>
                 EF.Functions.ILike(s.Order.OrderNumber, pattern)
                 || s.TrackingNumber != null && EF.Functions.ILike(s.TrackingNumber, pattern)
