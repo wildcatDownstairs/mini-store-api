@@ -19,7 +19,7 @@ public sealed class MarketingService(StoreDbContext db)
             source = source.Where(c => !c.IsActive);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(c =>
                 EF.Functions.ILike(c.Code, pattern) || EF.Functions.ILike(c.Name, pattern)
             );

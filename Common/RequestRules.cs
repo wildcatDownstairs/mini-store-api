@@ -56,6 +56,16 @@ public static class Rules
         return value!.Trim();
     }
 
+    /// <summary>把关键词转成 ILIKE 包含匹配模式：转义 \、%、_，让用户输入按字面量匹配。PostgreSQL LIKE 默认用反斜杠转义。</summary>
+    public static string ContainsPattern(string value) =>
+        "%"
+        + value
+            .Trim()
+            .Replace(@"\", @"\\", StringComparison.Ordinal)
+            .Replace("%", @"\%", StringComparison.Ordinal)
+            .Replace("_", @"\_", StringComparison.Ordinal)
+        + "%";
+
     /// <summary>当前业务只接受范围内的整数日元；NUMERIC 的精度能力不等于 API 允许任意小数。</summary>
     public static void Money(decimal value, string label, bool positive = false) =>
         Require(

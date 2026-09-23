@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace MiniStore.Features.Marketing;
 
 // DTO 定义接口输入输出，与数据库实体分开；对外只传递业务需要的字段。
@@ -10,12 +12,12 @@ namespace MiniStore.Features.Marketing;
 /// <param name="Name">名称，必填，长度限制见对应业务校验。</param>
 /// <param name="DiscountType">percentage 按百分比优惠，fixed 固定金额优惠。</param>
 /// <param name="DiscountValue">正整数；percentage 时不超过 100，10 表示优惠 10%；fixed 时为 JPY。</param>
-/// <param name="MinOrderAmount">最低订单门槛，非负整数 JPY，按折扣前税前商品小计判断。</param>
+/// <param name="MinOrderAmount">最低订单门槛，非负整数 JPY，按折扣前税前商品小计判断；必填，省略返回 400。</param>
 /// <param name="MaxDiscountAmount">最高优惠额，可为空；非空时为正整数 JPY。</param>
 /// <param name="UsageLimit">使用次数上限，可为空；非空时须为正整数且不能小于已核销次数。</param>
-/// <param name="StartsAt">开始时间，ISO 8601，须带 Z 或时区偏移。</param>
-/// <param name="EndsAt">结束时间，须晚于开始时间；已过期券不能设为启用。</param>
-/// <param name="IsActive">是否启用。</param>
+/// <param name="StartsAt">开始时间，ISO 8601，须带 Z 或时区偏移；必填，省略返回 400。</param>
+/// <param name="EndsAt">结束时间，须晚于开始时间；已过期券不能设为启用；必填，省略返回 400。</param>
+/// <param name="IsActive">是否启用；必填，省略返回 400。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
@@ -26,22 +28,22 @@ public sealed record CouponRequest(
     string Name,
     string DiscountType,
     decimal DiscountValue,
-    decimal MinOrderAmount,
+    [property: JsonRequired] decimal MinOrderAmount,
     decimal? MaxDiscountAmount,
     int? UsageLimit,
-    DateTimeOffset StartsAt,
-    DateTimeOffset EndsAt,
-    bool IsActive
+    [property: JsonRequired] DateTimeOffset StartsAt,
+    [property: JsonRequired] DateTimeOffset EndsAt,
+    [property: JsonRequired] bool IsActive
 );
 
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
-/// <param name="IsActive">是否启用。</param>
+/// <param name="IsActive">是否启用；必填，省略返回 400。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
     Justification = "ASP.NET Core 请求体绑定会自动创建此类型。"
 )]
-public sealed record CouponStatusRequest(bool IsActive);
+public sealed record CouponStatusRequest([property: JsonRequired] bool IsActive);
 
 /// <summary>优惠券维护信息；IsActive 是启用开关，有效期、门槛和次数仍在结算时校验。</summary>
 public sealed record CouponDto(

@@ -123,7 +123,7 @@ public sealed class CustomerService(StoreDbContext db)
             source = source.Where(c => c.Status == q.Status);
         if (!string.IsNullOrWhiteSpace(q.Q))
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(c =>
                 EF.Functions.ILike(c.Email, pattern)
                 || EF.Functions.ILike(c.LastName + c.FirstName, pattern)
