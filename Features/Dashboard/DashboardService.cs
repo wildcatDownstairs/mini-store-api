@@ -53,7 +53,7 @@ public sealed class DashboardService(StoreDbContext db)
             30,
             revenue,
             count,
-            count == 0 ? 0 : decimal.Round(revenue / count, 0),
+            count == 0 ? 0 : decimal.Round(revenue / count, 0, MidpointRounding.AwayFromZero),
             refunds,
             await db.Products.CountAsync(p => p.Status == "active" && p.DeletedAt == null, ct),
             await db.Customers.CountAsync(ct),
