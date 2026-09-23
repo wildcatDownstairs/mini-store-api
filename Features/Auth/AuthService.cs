@@ -49,11 +49,12 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
     {
         var email = Email(request.Email);
         var customer = await db.Customers.SingleOrDefaultAsync(x => x.Email.ToLower() == email, ct);
+        var passwordOk = Verify(customer?.PasswordHash, request.Password);
         if (
             customer is null
             || customer.Status != "active"
             || customer.DeletedAt != null
-            || !Verify(customer.PasswordHash, request.Password)
+            || !passwordOk
         )
             throw new ApiError(
                 401,
@@ -79,7 +80,8 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
         var admin = await db
             .AdminUsers.AsNoTracking()
             .SingleOrDefaultAsync(x => x.Email.ToLower() == email, ct);
-        if (admin is null || !admin.IsActive || !Verify(admin.PasswordHash, request.Password))
+        var passwordOk = Verify(admin?.PasswordHash, request.Password);
+        if (admin is null || !admin.IsActive || !passwordOk)
             throw new ApiError(401, "invalid_credentials", "管理员邮箱或密码错误，或账户不可用。");
         return Issue(admin.PublicId, admin.DisplayName, admin.Role, "admin", config);
     }
@@ -101,15 +103,24 @@ public sealed class AuthService(StoreDbContext db, IConfiguration config)
     private static void Password(string? value) =>
         Rules.Require(value is { Length: >= 12 and <= 128 }, "密码长度须为 12～128 字符。");
 
-    /// <summary>验证 ASP.NET Identity 格式的密码哈希；哈希不可逆，不能解密还原密码。</summary>
-    private static bool Verify(string hash, string? password)
+    // 只用于补齐耗时：账号不存在或是种子假哈希时也做一次同成本校验，避免按响应时间判断邮箱是否注册。
+    private static readonly string TimingPlaceholderHash =
+        new PasswordHasher<object>().HashPassword(new(), Guid.NewGuid().ToString());
+
+    /// <summary>验证 ASP.NET Identity 格式的密码哈希；哈希不可逆，不能解密还原密码。无可用哈希时仍执行一次占位校验并返回 false。</summary>
+    private static bool Verify(string? hash, string? password)
     {
-        if (password is null || password.Length > 128 || !hash.StartsWith("AQAAAA"))
+        if (password is null || password.Length > 128)
             return false;
+        var usable = hash is not null && hash.StartsWith("AQAAAA", StringComparison.Ordinal);
         try
         {
-            return new PasswordHasher<object>().VerifyHashedPassword(new(), hash, password)
-                != PasswordVerificationResult.Failed;
+            return new PasswordHasher<object>().VerifyHashedPassword(
+                    new(),
+                    usable ? hash! : TimingPlaceholderHash,
+                    password
+                ) != PasswordVerificationResult.Failed
+                && usable;
         }
         catch (FormatException)
         {
