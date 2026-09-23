@@ -10,6 +10,7 @@ from pathlib import Path
 import secrets
 import socket
 import subprocess
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -62,6 +63,17 @@ def request(path, method='GET', body=None, token=None, expected=200, headers=Non
 def post(path, body=None, token=None, expected=200, headers=None):
     return request(path, 'POST', body, token, expected, headers)
 
+def start_api(log):
+    global process
+    # 每次启动换一个空 HOME，模拟容器重启：密钥不能依赖用户目录下的默认存储。
+    process = subprocess.Popen([dotnet(), str(ROOT/'bin/Debug/net10.0/mini-store.dll')], cwd=ROOT, env={**env, 'HOME': tempfile.mkdtemp()}, stdout=log, stderr=log)
+    for _ in range(100):
+        if process.poll() is not None:
+            raise RuntimeError('测试服务器提前退出，检查 .local/api-test.log')
+        try: request('/health'); break
+        except (urllib.error.URLError, ConnectionError): time.sleep(.2)
+    else: raise RuntimeError('测试服务器启动失败，检查 .local/api-test.log')
+
 try:
     subprocess.run([dotnet(), 'build', '--no-restore'], cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     with psycopg.connect(dbname='postgres', host=env['PGHOST'], autocommit=True) as conn:
@@ -81,13 +93,7 @@ try:
         subprocess.run([dotnet(), str(dll), '--create-admin'], cwd=ROOT, env={**env, 'ADMIN_EMAIL': role+'@qa.example', 'ADMIN_PASSWORD': password, 'ADMIN_ROLE': role}, stdout=subprocess.DEVNULL, check=True)
     logdir=ROOT/'.local'; logdir.mkdir(exist_ok=True)
     with (logdir/'api-test.log').open('w') as log:
-        process = subprocess.Popen([dotnet(), str(dll)], cwd=ROOT, env=env, stdout=log, stderr=log)
-        for _ in range(100):
-            if process.poll() is not None:
-                raise RuntimeError('测试服务器提前退出，检查 .local/api-test.log')
-            try: request('/health'); break
-            except (urllib.error.URLError, ConnectionError): time.sleep(.2)
-        else: raise RuntimeError('测试服务器启动失败，检查 .local/api-test.log')
+        start_api(log)
         operator = post('/api/admin/auth/login', {'email':'operator@qa.example','password':password})['accessToken']
         viewer = post('/api/admin/auth/login', {'email':'viewer@qa.example','password':password})['accessToken']
         customers = [post('/api/auth/register', {'email':f'customer{i}@qa.example','password':password,'firstName':'美咲','lastName':'検証'}) for i in range(2)]
@@ -255,10 +261,21 @@ try:
             with urllib.request.urlopen(base + '/scalar/' + asset) as res:
                 assert res.status == 200 and res.read(), asset
 
+        # 报价令牌的密钥写在项目 .local 目录：换了 HOME 的重启后，十分钟内的报价仍可下单。
+        own=post('/api/me/addresses',address,stranger)
+        restart_body={'addressId':own['id'],'shippingMethod':'standard','couponCode':None}
+        q=post('/api/me/checkout/quote',restart_body,stranger)
+        process.terminate(); process.wait(timeout=10); start_api(log)
+        post('/api/me/orders',{**restart_body,'quoteToken':q['quoteToken']},stranger,201,{'Idempotency-Key':str(uuid.uuid4())})
+
         # 在最后触发限流，以免影响前面的登录；限流也必须返回公司响应结构。
         for _ in range(21):
             post('/api/auth/login', {'email':'missing@qa.example','password':password}, expected=(401,429))
         post('/api/auth/login', {'email':'missing@qa.example','password':password}, expected=429)
+        # 未配置可信代理时伪造 X-Forwarded-For 不能换来新额度；后台登录按接口单独计数，不受客户登录影响。
+        post('/api/auth/login', {'email':'missing@qa.example','password':password}, expected=429, headers={'X-Forwarded-For':'203.0.113.9'})
+        post('/API/AUTH/LOGIN', {'email':'missing@qa.example','password':password}, expected=429)
+        post('/api/admin/auth/login', {'email':'operator@qa.example','password':password})
         (ROOT/'docs/backend/openapi.json').write_text(json.dumps(schema, ensure_ascii=False, indent=2) + '\n')
 
         # 通用 SQL 审计包含订单合计、退款、库存流水、所有外键和时间线。
