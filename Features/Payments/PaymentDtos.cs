@@ -1,15 +1,17 @@
+using System.Text.Json.Serialization;
+
 namespace MiniStore.Features.Payments;
 
 // DTO 定义接口输入输出，与数据库实体分开；对外只传递业务需要的字段。
 
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
-/// <param name="Success">true 模拟成功收款；false 记录一次失败尝试，不产生真实资金流。</param>
+/// <param name="Success">true 模拟成功收款；false 记录一次失败尝试，不产生真实资金流。必填，省略返回 400。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
     Justification = "ASP.NET Core 请求体绑定会自动创建此类型。"
 )]
-public sealed record SimulatedPaymentRequest(bool Success);
+public sealed record SimulatedPaymentRequest([property: JsonRequired] bool Success);
 
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
 /// <remarks><c>PaymentId</c>：已收款支付记录的公开 UUID，不是订单 UUID。</remarks>
@@ -26,13 +28,13 @@ public sealed record RefundRequest(Guid PaymentId, decimal Amount, string Reason
 
 /// <summary>请求模型：由 ASP.NET Core 将请求 JSON 反序列化为对象，无需手动 new。</summary>
 /// <remarks><c>Approved</c>：true 在开发模拟模式完成退款；false 拒绝申请并将状态记为 failed。</remarks>
-/// <param name="Approved">是否批准退款；批准仅在开发模拟模式下可用。</param>
+/// <param name="Approved">是否批准退款；批准仅在开发模拟模式下可用。必填，省略返回 400。</param>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "ReSharper",
     "ClassNeverInstantiated.Global",
     Justification = "ASP.NET Core 请求体绑定会自动创建此类型。"
 )]
-public sealed record RefundDecision(bool Approved);
+public sealed record RefundDecision([property: JsonRequired] bool Approved);
 
 /// <summary>支付列表；AvailableRefund 从已收款金额扣除已完成及待审核退款，未收款时为零。</summary>
 public sealed record PaymentSummaryDto(
