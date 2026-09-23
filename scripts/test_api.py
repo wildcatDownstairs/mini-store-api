@@ -73,6 +73,8 @@ try:
         conn.execute("INSERT INTO catalog.brands(name,slug,country_code) VALUES('検証工房','check-brand','JP')")
         conn.execute("INSERT INTO catalog.categories(name,slug) VALUES('Home','home'),('Food','food')")
         conn.execute("INSERT INTO inventory.warehouses(code,name,postal_code,prefecture,city,address) VALUES('QA-TOKYO','検証東京倉庫','100-0001','東京都','千代田区','千代田1-1')")
+        # 与 seed.py 相同格式的假哈希：只能证明账号存在，不能登录。
+        conn.execute("INSERT INTO account.customers(public_id,email,password_hash,first_name,last_name,status) VALUES(gen_random_uuid(),'seeded@qa.example','$argon2id$v=19$m=65536,t=3,p=1$LAB_ONLY_NOT_A_LOGIN$00','種','子','active')")
         conn.execute((ROOT/'db/10_comments.sql').read_text())
     dll = ROOT/'bin/Debug/net10.0/mini-store.dll'
     for role in ('operator', 'viewer'):
@@ -90,6 +92,16 @@ try:
         viewer = post('/api/admin/auth/login', {'email':'viewer@qa.example','password':password})['accessToken']
         customers = [post('/api/auth/register', {'email':f'customer{i}@qa.example','password':password,'firstName':'美咲','lastName':'検証'}) for i in range(2)]
         token = customers[0]['accessToken']; stranger = customers[1]['accessToken']
+        # 未注册邮箱、种子假哈希与真实账号错密码都要做同成本哈希校验，耗时不能暴露邮箱是否存在。
+        def login_ms(email):
+            samples = []
+            for _ in range(3):
+                started = time.perf_counter()
+                post('/api/auth/login', {'email':email,'password':password+'x'}, expected=401)
+                samples.append(time.perf_counter() - started)
+            return sorted(samples)[1] * 1000
+        real, missing, seeded = login_ms('customer0@qa.example'), login_ms('nobody@qa.example'), login_ms('seeded@qa.example')
+        assert missing > real * .5 and seeded > real * .5, (real, missing, seeded)
         request('/api/admin/orders', expected=401)
         request('/api/admin/orders', token=token, expected=403)
         request('/api/store/products?pageSize=0', expected=400)
@@ -106,6 +118,12 @@ try:
         p=post('/api/admin/products',product,operator,201); pid=p['id']; variant=p['variants'][0]['id']
         request('/api/admin/products/'+pid+'/status','PATCH',{'status':'active','version':p['version']},operator,200)
         request('/api/admin/products/'+pid+'/status','PATCH',{'status':'inactive','version':p['version']},operator,409)
+        request('/api/admin/products/'+pid+'/status','PATCH',{'status':'inactive'},operator,400)
+        # 关键词按字面量匹配：% 和 _ 不是通配符。
+        assert request('/api/store/products?q=%25')['total'] == 0
+        assert request('/api/store/products?q=_')['total'] == 0
+        assert request('/api/store/products?q=qa-cup')['total'] == 1
+        assert request('/api/admin/orders?q=%25',token=operator)['total'] == 0
         warehouse=request('/api/admin/inventory/warehouses',token=operator)[0]['id']
         stockpath=f'/api/admin/inventory/stocks/{warehouse}/{variant}/adjust'
         post(stockpath,{'quantity':10,'reason':'隔离测试进货'},operator,200)
@@ -119,6 +137,11 @@ try:
         now=datetime.now(timezone.utc)
         coupon={'code':'QA10','name':'検証优惠','discountType':'percentage','discountValue':10,'minOrderAmount':0,'maxDiscountAmount':500,'usageLimit':10,'startsAt':(now-timedelta(days=1)).isoformat(),'endsAt':(now+timedelta(days=1)).isoformat(),'isActive':True}
         post('/api/admin/coupons',coupon,operator)
+        qa10=request('/api/admin/coupons?q=QA10',token=operator)['records'][0]
+        # 省略布尔字段必须 400，不能默认停用优惠券、记失败支付或拒绝退款。
+        request('/api/admin/coupons/'+qa10['id']+'/status','PATCH',{},operator,400)
+        request('/api/admin/coupons/'+qa10['id'],'PUT',{k:v for k,v in coupon.items() if k!='isActive'},operator,400)
+        assert request('/api/admin/coupons?q=QA10',token=operator)['records'][0]['isActive'] is True
         quote_body={'addressId':addr2['id'],'shippingMethod':'standard','couponCode':'QA10'}
         q=post('/api/me/checkout/quote',quote_body,token)
         assert q['totals']=={'subtotal':2000,'discountTotal':200,'taxTotal':180,'shippingTotal':500,'grandTotal':2480,'currency':'JPY'},q
@@ -132,6 +155,8 @@ try:
         assert detail['fulfillmentWarehouseId']==warehouse
         assert request('/api/admin/orders',token=operator)['total']==1
         post(stockpath,{'quantity':-9,'reason':'拒绝扣掉预占库存'},operator,409)
+        post('/api/me/orders/'+oid+'/simulate-payment',{},token,400)
+        assert request('/api/me/orders/'+oid,token=token)['payments'] == []
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':False},token)
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
         post('/api/me/orders/'+oid+'/simulate-payment',{'success':True},token)
@@ -148,6 +173,7 @@ try:
         def refund(_):return post('/api/admin/refunds',{'paymentId':payment['id'],'amount':2000,'reason':'并发超额保护'},operator,(200,409))
         with ThreadPoolExecutor(2) as pool: refunds=list(pool.map(refund,range(2)))
         succeeded=[r for r in refunds if 'id' in r];assert len(succeeded)==1
+        post('/api/admin/refunds/'+succeeded[0]['id']+'/review',{},operator,400)
         post('/api/admin/refunds/'+succeeded[0]['id']+'/review',{'approved':True},operator,200)
         # 再次结算 -> 取消，验证已转换购物车不会被当成唯一一对一导航。
         request('/api/me/cart/items/'+variant,'PUT',{'quantity':1},token,200)
@@ -159,11 +185,21 @@ try:
         request('/api/admin/dashboard',token=operator)
         # 重构回归：真实 SQL 排序、具名响应 DTO 与框架 JSON 绑定必须保持可用。
         food = {**product, 'name':'検証・食品', 'slug':'qa-food', 'categoryIds':[next(c['id'] for c in cats if c['name']=='Food')], 'variants':[{**product['variants'][0], 'sku':'QA-FOOD', 'price':1001}]}
-        food_id = post('/api/admin/products',food,operator,201)['id']
+        food_product = post('/api/admin/products',food,operator,201); food_id = food_product['id']
         # 税前 1001 的食品含税 1081，低于税前 1000 的杯子含税 1100。
         for sort, first in [('price_asc', food_id), ('price_desc', pid), ('rating', pid), ('newest', food_id)]:
             listed = request('/api/store/products?sort='+sort)
             assert listed['records'][0]['id'] == first
+        # 第二笔已付款订单 1001+80+500=1581；客单价 (2480+1581)/2=2030.5 须与计价一致按四舍五入得 2031。
+        food_variant = food_product['variants'][0]['id']
+        post(f'/api/admin/inventory/stocks/{warehouse}/{food_variant}/adjust',{'quantity':1,'reason':'食品进货'},operator,200)
+        request('/api/me/cart/items/'+food_variant,'PUT',{'quantity':1},token,200)
+        plain={**quote_body,'couponCode':None}
+        q=post('/api/me/checkout/quote',plain,token); assert q['totals']['grandTotal']==1581, q
+        food_order=post('/api/me/orders',{**plain,'quoteToken':q['quoteToken']},token,201,{'Idempotency-Key':str(uuid.uuid4())})
+        post('/api/me/orders/'+food_order['id']+'/simulate-payment',{'success':True},token)
+        board=request('/api/admin/dashboard',token=operator)
+        assert board['paidOrders']==2 and board['gmv']==4061 and board['aov']==2031, board
 
         assert request('/api/store/products/'+p['slug'])['variants'][0]['id'] == variant
         assert request('/api/store/products/by-id/'+pid)['id'] == pid
