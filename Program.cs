@@ -1,4 +1,5 @@
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
 using MiniStore.Data;
@@ -46,7 +47,21 @@ builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddStoreOpenApi();
 
 // Data Protection 用于保护结算报价令牌；登录 JWT 使用 Auth 中的另一套签名配置。
-builder.Services.AddDataProtection();
+// 密钥写入固定目录：重启或多实例共享同一目录时，十分钟内的报价令牌仍可解开。目录已被 Git 忽略，
+// Linux 上没有系统级密钥加密，只能依赖目录权限保护，生产环境需另配证书或密钥库。
+builder
+    .Services.AddDataProtection()
+    .SetApplicationName("MiniStore")
+    .PersistKeysToFileSystem(
+        new DirectoryInfo(
+            builder.Configuration["DataProtection:KeysPath"]
+                ?? Path.Combine(
+                    builder.Environment.ContentRootPath,
+                    ".local",
+                    "data-protection-keys"
+                )
+        )
+    );
 builder.AddStoreAuth();
 
 // Service 构造参数由容器自动提供。它们依赖 Scoped DbContext，不能注册成跨请求共享的单例。
