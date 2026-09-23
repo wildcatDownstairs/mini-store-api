@@ -44,7 +44,7 @@ public sealed class PaymentService(
             source = source.Where(p => p.Status == q.Status);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(p =>
                 EF.Functions.ILike(p.Order.OrderNumber, pattern)
                 || p.ProviderTransactionId != null
@@ -89,7 +89,7 @@ public sealed class PaymentService(
             source = source.Where(r => r.Status == q.Status);
         if (q.Q is { Length: > 0 })
         {
-            var pattern = "%" + q.Q.Trim() + "%";
+            var pattern = Rules.ContainsPattern(q.Q);
             source = source.Where(r => EF.Functions.ILike(r.Payment.Order.OrderNumber, pattern));
         }
         return await source
