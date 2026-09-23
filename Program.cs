@@ -1,5 +1,7 @@
+using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using MiniStore.Common;
 using MiniStore.Data;
@@ -97,7 +99,18 @@ builder.Services.AddCors(options =>
     )
 );
 
-// 此策略仅由声明 RequireRateLimiting("auth") 的登录、注册端点使用，按来源 IP 限制请求频率。
+// 只信任显式配置的反向代理转发的客户端 IP；未配置时忽略 X-Forwarded-For，防止伪造请求头绕过限流。
+var knownProxies =
+    builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>() ?? [];
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor;
+    foreach (var proxy in knownProxies)
+        options.KnownProxies.Add(IPAddress.Parse(proxy));
+});
+
+// 此策略仅由声明 RequireRateLimiting("auth") 的登录、注册端点使用，按来源 IP 和接口分别计数，
+// 同一出口 IP 的客户登录流量不会耗尽后台登录的额度。按路由模板而不是原始路径分桶，改大小写不能换来新额度。
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = 429;
@@ -105,7 +118,7 @@ builder.Services.AddRateLimiter(options =>
         "auth",
         http =>
             RateLimitPartition.GetFixedWindowLimiter(
-                http.Connection.RemoteIpAddress?.ToString() ?? "local",
+                $"{http.Connection.RemoteIpAddress?.ToString() ?? "local"}|{(http.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText}",
                 _ =>
                     new()
                     {
@@ -119,6 +132,8 @@ builder.Services.AddRateLimiter(options =>
 var app = builder.Build();
 
 // 中间件按顺序包住请求：先安排统一错误处理，再认证“是谁”，最后授权“可否访问”。
+if (knownProxies.Length > 0)
+    app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages(async context =>
 {
