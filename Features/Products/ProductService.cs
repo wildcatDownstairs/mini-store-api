@@ -90,6 +90,7 @@ public sealed class ProductService(StoreDbContext db)
             new(p.Brand.PublicId, p.Brand.Name, p.Brand.Slug),
             p.Status,
             new(
+                // 在 SQL 中执行为 round(numeric)，与 Pricing 的 AwayFromZero 相同；Npgsql 不翻译带 MidpointRounding 的重载。
                 Math.Round(
                     (
                         p.ProductVariants.Where(v => v.IsActive).Min(v => (decimal?)v.Price)
@@ -240,6 +241,7 @@ public sealed class ProductService(StoreDbContext db)
         var prices = source.Select(p => new
         {
             Product = p,
+            // 与 Summary 相同：SQL round(numeric) 为四舍五入远离零。
             Amount = Math.Round(
                 (
                     p.ProductVariants.Where(v => v.IsActive).Min(v => (decimal?)v.Price)
